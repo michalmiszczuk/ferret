@@ -1,8 +1,9 @@
 import type { ClaudeStatus, ReviewSummary } from "../../shared/api-types";
-import { countBySeverity, scopeLabel, SEVERITY_ICON } from "../../shared/findings";
+import { countBySeverity, scopeLabel } from "../../shared/findings";
 import { repoName } from "../../shared/paths";
 import { SEVERITIES, type Review } from "../../shared/schema";
 import logoUrl from "../logo.png";
+import { Gem } from "./Gem";
 
 interface Props {
   reviews: ReviewSummary[];
@@ -37,7 +38,7 @@ export function Header({
   return (
     <header className="header">
       <div className="header-title">
-        <img className="logo" src={logoUrl} alt="" width={20} height={20} />
+        <img className="logo" src={logoUrl} alt="" width={28} height={28} />
         <strong>Ferret</strong>
         {review && (
           <span className="muted" title={review.summary}>
@@ -49,7 +50,7 @@ export function Header({
         <div className="counts">
           {SEVERITIES.map((s) => (
             <span key={s} className={`count sev-${s}`}>
-              {SEVERITY_ICON[s]} {counts[s]}
+              <Gem severity={s} /> {counts[s]}
             </span>
           ))}
         </div>

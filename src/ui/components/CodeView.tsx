@@ -5,6 +5,7 @@ import type { Finding, FindingPatch, Review } from "../../shared/schema";
 import { fetchFile } from "../api";
 import { highlight, type Tok } from "../highlight";
 import { CommentCard } from "./CommentCard";
+import { Gem } from "./Gem";
 
 interface Props {
   review: Review;
@@ -138,7 +139,9 @@ export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef 
                       title={d.title}
                       aria-label={`Finding: ${d.title}`}
                       onClick={() => onSelect(d.id)}
-                    />
+                    >
+                      <Gem severity={d.severity} size={11} />
+                    </button>
                   ))}
                 </span>
                 <span className="ln">{n}</span>

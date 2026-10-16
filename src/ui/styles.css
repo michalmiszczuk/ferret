@@ -36,6 +36,13 @@ button { font: inherit; }
 .sev-low { --sev: var(--low); }
 
 .muted { color: var(--muted); }
+
+/* Severity gems: flat hexagons with a lit facet. Dimmed when a filter chip is off. */
+.gem { flex: none; vertical-align: -1px; filter: drop-shadow(0 0 2px color-mix(in srgb, var(--sev) 45%, transparent)); }
+.chip[data-dim] { color: var(--faint); }
+.chip[data-dim] .gem { filter: grayscale(0.7) opacity(0.5); }
+.counts span { display: inline-flex; align-items: center; gap: 4px; }
+.card-head .sev-label { display: inline-flex; align-items: center; gap: 5px; }
 .pad, .empty { padding: 12px 16px; }
 .welcome { padding: 40px; color: var(--muted); }
 
@@ -99,7 +106,7 @@ button.send:disabled { background: transparent; border-color: var(--border); col
 }
 .header-title { display: flex; gap: 10px; align-items: baseline; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-title { align-items: center; }
-.header-title .logo { flex: none; border-radius: 5px; }
+.header-title .logo { flex: none; border-radius: 7px; }
 .header-title strong { font-size: 13px; font-weight: 600; }
 .counts { display: flex; gap: 10px; white-space: nowrap; color: var(--muted); }
 .header select { max-width: 320px; }
@@ -126,14 +133,19 @@ button.send:disabled { background: transparent; border-color: var(--border); col
   height: 24px;
   padding: 0 7px;
   background: transparent;
-  color: var(--faint);
+  color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   font-size: 11px;
 }
-.chip:hover { background: var(--raised); }
-.chip[aria-pressed="true"] { color: var(--text); border-color: var(--border-strong); background: var(--raised); }
+.chip:hover { background: var(--raised); color: var(--text); }
+/* Selected filter: tinted in its severity color */
+.chip[aria-pressed="true"] {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--sev) 70%, transparent);
+  background: color-mix(in srgb, var(--sev) 16%, transparent);
+}
 /* Figma-style segmented control (status filter) */
 .segmented {
   display: inline-flex;
@@ -214,7 +226,8 @@ button.send:disabled { background: transparent; border-color: var(--border); col
 .chg { width: 2px; flex: none; }
 .chg.on { background: var(--accent); opacity: 0.7; }
 .dots { width: 20px; flex: none; display: flex; align-items: center; justify-content: center; gap: 2px; }
-.dot { width: 7px; height: 7px; border-radius: 50%; border: 0; padding: 0; background: var(--sev); cursor: pointer; }
+.dot { display: inline-flex; border: 0; padding: 0; background: none; cursor: pointer; }
+.dot:hover .gem { transform: scale(1.2); }
 .ln { width: 44px; flex: none; text-align: right; padding-right: 14px; color: var(--faint); user-select: none; }
 .src { white-space: pre; }
 

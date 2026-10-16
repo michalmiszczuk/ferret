@@ -1,4 +1,5 @@
-import { listView, SEVERITY_ICON, SEVERITY_LABEL, type Filters, type StatusFilter } from "../../shared/findings";
+import { listView, SEVERITY_LABEL, type Filters, type StatusFilter } from "../../shared/findings";
+import { Gem } from "./Gem";
 import { SEVERITIES, type Finding, type FindingStatus, type Severity } from "../../shared/schema";
 
 interface Props {
@@ -30,12 +31,13 @@ export function FindingsList(p: Props) {
   const { active, done } = listView(p.findings, p.filters);
   const showDone = p.doneOpen || p.filters.status === "done";
 
+  // No chip selected = show all. Each click turns one severity on/off; turning the last one off shows all again.
+  const showingAll = p.filters.severities.length === SEVERITIES.length;
   const toggleSeverity = (s: Severity) => {
-    const has = p.filters.severities.includes(s);
-    p.onFiltersChange({
-      ...p.filters,
-      severities: has ? p.filters.severities.filter((x) => x !== s) : SEVERITIES.filter((x) => x === s || p.filters.severities.includes(x)),
-    });
+    const current = showingAll ? [] : p.filters.severities;
+    let next = current.includes(s) ? current.filter((x) => x !== s) : SEVERITIES.filter((x) => x === s || current.includes(x));
+    if (next.length === 0) next = [...SEVERITIES];
+    p.onFiltersChange({ ...p.filters, severities: next });
   };
 
   return (
@@ -45,10 +47,12 @@ export function FindingsList(p: Props) {
           <button
             key={s}
             className={`chip sev-${s}`}
-            aria-pressed={p.filters.severities.includes(s)}
+            aria-pressed={!showingAll && p.filters.severities.includes(s)}
+            data-dim={!showingAll && !p.filters.severities.includes(s) ? "" : undefined}
+            title="Click to show/hide this severity"
             onClick={() => toggleSeverity(s)}
           >
-            {SEVERITY_ICON[s]} {SEVERITY_LABEL[s]}
+            <Gem severity={s} /> {SEVERITY_LABEL[s]}
           </button>
         ))}
       </div>

@@ -62,10 +62,10 @@ describe("FindingsList", () => {
     expect(screen.getByText("Not relevant")).toBeTruthy();
   });
 
-  it("toggling a severity chip removes it from the filter", async () => {
+  it("clicking a severity chip (nothing selected yet) shows only that severity", async () => {
     const p = setup();
     await userEvent.click(screen.getByRole("button", { name: /Low/ }));
-    expect(p.onFiltersChange).toHaveBeenCalledWith({ ...all, severities: ["critical", "high", "medium"] });
+    expect(p.onFiltersChange).toHaveBeenCalledWith({ ...all, severities: ["low"] });
   });
 
   it("says there are no findings yet when the list is empty (not a filter problem)", () => {

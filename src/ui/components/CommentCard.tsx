@@ -1,7 +1,8 @@
 import { useEffect, useState, type Ref } from "react";
 import Markdown from "react-markdown";
 import type { Anchor } from "../../shared/api-types";
-import { SEVERITY_ICON, SEVERITY_LABEL } from "../../shared/findings";
+import { SEVERITY_LABEL } from "../../shared/findings";
+import { Gem } from "./Gem";
 import { SEVERITIES, type Finding, type FindingPatch, type Severity } from "../../shared/schema";
 
 interface Props {
@@ -26,7 +27,7 @@ export function CommentCard({ finding: f, anchor, onUpdate, onSend, noteRef }: P
     <div className={`card sev-${f.severity}`} data-testid="comment-card">
       <div className="card-head">
         <span className={`sev-label sev-${f.severity}`}>
-          {SEVERITY_ICON[f.severity]} {SEVERITY_LABEL[f.severity].toUpperCase()}
+          <Gem severity={f.severity} /> {SEVERITY_LABEL[f.severity].toUpperCase()}
         </span>
         <span className="muted"> · {f.category}</span>
         {f.severity !== f.originalSeverity && (
