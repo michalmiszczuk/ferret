@@ -16,7 +16,7 @@ AI code reviews (starting with Claude Code) come back as plain text. That is fin
 
 ### Success criteria
 
-1. After `/review` in Claude Code, the findings appear in the app with no copy-paste.
+1. After `/ai-review` in Claude Code, the findings appear in the app with no copy-paste.
 2. Clicking a finding shows the code at the right lines with the comment inline.
 3. Marking findings "Fix" and pasting one short prompt into Claude makes Claude fix exactly those findings, honoring any per-finding note.
 4. Each finding's status updates in the app (fixing → fixed/skipped) without a page reload.
@@ -139,7 +139,9 @@ All inputs are validated with the Zod schemas. On a validation error the tool re
 
 Installed to `~/.claude/skills/` by a setup command (`npx review-app setup`, which also runs the `claude mcp add` registration).
 
-### `/review [paths...]`
+### `/ai-review [paths...]`
+
+Named `ai-review` (not `review`) because Claude Code already has a built-in `/review` command.
 
 - No arguments: reviews uncommitted changes (`git diff HEAD` plus untracked files).
 - With paths: reviews those whole files or folders.
@@ -206,14 +208,14 @@ Copies `/apply-review <reviewId>` to the clipboard and shows a toast: "Copied, p
 | Finding stuck in `fixing` | The user clicks "Reset to open". |
 | Browser closed or reopened | All state comes from disk, so nothing is lost. |
 
-The server binds to `127.0.0.1` only.
+The server binds to `127.0.0.1` only and rejects (403) any request whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`. This blocks DNS-rebinding attacks from web pages open in the browser.
 
 ## 9. Testing
 
 - **Unit (Vitest):** Zod schemas, sorting/filtering, re-anchoring (exact / moved / multiple / lost), the path-safety check, and store load/save.
 - **MCP integration:** start the server on a random port and use an MCP client to run `submit_review` → set a finding to `fix_requested` via `/api` → `get_pending_actions` → `mark_done`, asserting the state after each step.
 - **UI:** component tests (Vitest + Testing Library) for the findings list ordering and filters and for the comment card actions.
-- **Manual E2E:** in a sample repo, run `/review`, triage in the app, run `/apply-review`, and watch the statuses update live.
+- **Manual E2E:** in a sample repo, run `/ai-review`, triage in the app, run `/apply-review`, and watch the statuses update live.
 
 ## 10. Project layout
 
@@ -232,7 +234,7 @@ review-app/
       index.ts            # `review-app` (start) and `review-app setup`
     ui/                   # Vite + React app
   skills/
-    review/SKILL.md
+    ai-review/SKILL.md
     apply-review/SKILL.md
   tests/
 ```
