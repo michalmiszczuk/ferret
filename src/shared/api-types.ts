@@ -3,6 +3,7 @@ import type { Review, Severity } from "./schema";
 export interface ClaudeStatus {
   connected: boolean;
   skillsInstalled: boolean;
+  skillsOutdated?: boolean; // installed skills are older than the app's → offer "Update Claude"
   mcpRegistered: boolean;
 }
 
@@ -11,7 +12,7 @@ export interface ClaudeConnectResult {
   message: string;
 }
 
-export type StoreEvent = { type: "review-created" | "review-updated"; reviewId: string };
+export type StoreEvent = { type: "review-created" | "review-updated" | "review-deleted"; reviewId: string };
 
 export type Anchor = { lineStart: number; lineEnd: number; anchor: "exact" | "moved" | "lost" };
 

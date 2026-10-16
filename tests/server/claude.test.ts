@@ -22,7 +22,9 @@ async function setup(claudeJson?: unknown) {
 describe("Claude integration status", () => {
   it("is not connected on a fresh machine", async () => {
     const { integration } = await setup();
-    expect(await integration.status()).toEqual({ connected: false, skillsInstalled: false, mcpRegistered: false });
+    expect(await integration.status()).toEqual({
+      connected: false, skillsInstalled: false, skillsOutdated: false, mcpRegistered: false,
+    });
   });
 
   it("detects the MCP server registered in ~/.claude.json (user scope)", async () => {

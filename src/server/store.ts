@@ -72,6 +72,7 @@ export class ReviewStore extends EventEmitter {
       summary: input.summary,
       agent: "claude",
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      ...(input.projectDir ? { projectDir: input.projectDir } : {}),
       findings,
     };
     this.reviews.set(review.id, review);
@@ -90,10 +91,13 @@ export class ReviewStore extends EventEmitter {
     return finding;
   }
 
-  async takePending(reviewId?: string): Promise<{ review: Review; findings: Finding[] }> {
+  async takePending(reviewId?: string, findingIds?: string[]): Promise<{ review: Review; findings: Finding[] }> {
     const review = reviewId ? this.requireReview(reviewId) : this.latest();
     if (!review) throw new NotFoundError("No reviews yet. Run /ai-review first.");
-    const pending = sortFindings(review.findings.filter((f) => f.status === "fix_requested"));
+    const only = findingIds?.length ? new Set(findingIds) : null;
+    const pending = sortFindings(
+      review.findings.filter((f) => f.status === "fix_requested" && (!only || only.has(f.id))),
+    );
     if (pending.length > 0) {
       const now = new Date().toISOString();
       for (const f of pending) {
@@ -104,6 +108,24 @@ export class ReviewStore extends EventEmitter {
       this.emitChange({ type: "review-updated", reviewId: review.id });
     }
     return { review, findings: pending };
+  }
+
+  async delete(reviewId: string): Promise<void> {
+    this.requireReview(reviewId);
+    this.reviews.delete(reviewId);
+    const file = path.join(this.dir, `${reviewId}.json`);
+    // Queued behind pending writes so a late save can't resurrect the file.
+    const remove = () => fs.rm(file, { force: true });
+    const p = this.writeQueue.then(remove, remove);
+    this.writeQueue = p.catch(() => {});
+    await p;
+    this.emitChange({ type: "review-deleted", reviewId });
+  }
+
+  async clear(): Promise<number> {
+    const ids = [...this.reviews.keys()];
+    for (const id of ids) await this.delete(id);
+    return ids.length;
   }
 
   countFixing(reviewId: string): number {

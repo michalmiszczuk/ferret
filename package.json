@@ -18,6 +18,7 @@
     "start": "node dist/cli.js start",
     "seed": "tsx scripts/seed.ts",
     "icon": "tsx scripts/make-icon.ts",
+    "logo": "node scripts/run-electron.mjs scripts/import-logo.cjs",
     "desktop:dev": "npm run build && node scripts/run-electron.mjs .",
     "desktop:dist": "npm run build && electron-builder --win",
     "screenshot": "node scripts/run-electron.mjs scripts/screenshot.cjs",

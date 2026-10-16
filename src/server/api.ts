@@ -10,9 +10,33 @@ import { findVsCodeTheme } from "./vscode-theme";
 type Handler = (req: Request, res: Response) => Promise<unknown>;
 const wrap = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => fn(req, res).catch(next);
 
-export function createApiRouter(store: ReviewStore, claude?: ClaudeIntegration): Router {
+export function createApiRouter(
+  store: ReviewStore,
+  claude?: ClaudeIntegration,
+  openExternal?: (url: string) => Promise<void>,
+): Router {
   const r = Router();
   r.use(express.json({ limit: "1mb" }));
+
+  if (openExternal) {
+    // Opens vscode:// links from the server side: a page can only launch external apps right after a click,
+    // and "focus the window, wait, then open Claude" takes longer than that. JSON-only + vscode:// only.
+    r.post(
+      "/open-vscode",
+      wrap(async (req, res) => {
+        if (!req.is("application/json")) return res.status(415).json({ error: "Expected application/json" });
+        const urls = (req.body as { urls?: unknown }).urls;
+        if (!Array.isArray(urls) || urls.length === 0 || urls.length > 3 || !urls.every((u) => typeof u === "string" && u.startsWith("vscode://"))) {
+          return res.status(400).json({ error: "urls must be 1-3 vscode:// links" });
+        }
+        for (let i = 0; i < urls.length; i++) {
+          await openExternal(urls[i]);
+          if (i < urls.length - 1) await new Promise((r) => setTimeout(r, 1200)); // let VS Code switch windows
+        }
+        res.json({ ok: true });
+      }),
+    );
+  }
 
   if (claude) {
     r.get(
@@ -40,6 +64,32 @@ export function createApiRouter(store: ReviewStore, claude?: ClaudeIntegration):
     }),
   );
 
+  // Read-only: findings the user clicked "Send to Claude" on that Claude hasn't picked up yet (status
+  // fix_requested). A watcher in a Claude session polls this and wakes the chat; it does NOT change state
+  // (get_pending_actions does that). Filter by the session that made the review, and optionally by review.
+  r.get("/sent", (req, res) => {
+    const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
+    const reviewId = typeof req.query.reviewId === "string" ? req.query.reviewId : undefined;
+    const actions = store
+      .list()
+      .filter((rv) => (!sessionId || rv.sessionId === sessionId) && (!reviewId || rv.id === reviewId))
+      .flatMap((rv) =>
+        rv.findings
+          .filter((f) => f.status === "fix_requested")
+          .map((f) => ({
+            reviewId: rv.id,
+            findingId: f.id,
+            severity: f.severity,
+            title: f.title,
+            file: f.file,
+            lineStart: f.lineStart,
+            message: f.myNote ?? "",
+            sentAt: f.updatedAt,
+          })),
+      );
+    res.json({ actions });
+  });
+
   r.get("/reviews", (_req, res) => {
     res.json(store.list().map(toSummary));
   });
@@ -49,6 +99,25 @@ export function createApiRouter(store: ReviewStore, claude?: ClaudeIntegration):
     if (!review) return void res.status(404).json({ error: "Review not found" });
     res.json(review);
   });
+
+  // DELETE is never a "simple" cross-site request, so a web page can't trigger these without CORS (which we don't allow).
+  r.delete(
+    "/reviews",
+    wrap(async (_req, res) => res.json({ deleted: await store.clear() })),
+  );
+
+  r.delete(
+    "/reviews/:id",
+    wrap(async (req, res) => {
+      try {
+        await store.delete(req.params.id);
+        res.json({ deleted: 1 });
+      } catch (err) {
+        if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
+        throw err;
+      }
+    }),
+  );
 
   r.patch(
     "/reviews/:id/findings/:fid",

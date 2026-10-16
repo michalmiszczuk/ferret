@@ -66,7 +66,7 @@ export function closeAction(s: { quitting: boolean; sessionEnding: boolean }): "
 
 export function startupErrorMessage(err: unknown, port: number): string {
   if ((err as NodeJS.ErrnoException | undefined)?.code === "EADDRINUSE") {
-    return `Port ${port} is in use. Is review-app already running from a terminal? Close it and start the app again.`;
+    return `Port ${port} is in use. Is Ferret already running from a terminal? Close it and start the app again.`;
   }
   return err instanceof Error ? err.message : String(err);
 }

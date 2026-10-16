@@ -84,7 +84,7 @@ describe("startupErrorMessage", () => {
   it("explains a busy port", () => {
     const err = Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" });
     expect(startupErrorMessage(err, 4477)).toBe(
-      "Port 4477 is in use. Is review-app already running from a terminal? Close it and start the app again.",
+      "Port 4477 is in use. Is Ferret already running from a terminal? Close it and start the app again.",
     );
   });
 

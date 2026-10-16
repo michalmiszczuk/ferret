@@ -42,6 +42,10 @@ export const submitReviewShape = {
     .string()
     .optional()
     .describe("The Claude Code session id (${CLAUDE_SESSION_ID}) so 'Send to Claude' can return to this conversation"),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("The folder this Claude Code session runs in (${CLAUDE_PROJECT_DIR}) — the VS Code window to return to"),
 };
 export const submitReviewSchema = z.object(submitReviewShape);
 export type SubmitReviewInput = z.infer<typeof submitReviewSchema>;
@@ -73,6 +77,7 @@ export const reviewSchema = z.object({
   summary: z.string(),
   agent: z.literal("claude"),
   sessionId: z.string().optional(),
+  projectDir: z.string().optional(),
   findings: z.array(findingSchema),
 });
 export type Review = z.infer<typeof reviewSchema>;

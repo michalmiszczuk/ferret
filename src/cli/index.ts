@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClaudeIntegration } from "../server/claude";
 import { startServer } from "../server/index";
+import { openWithOs } from "../server/open-external";
 import { findPackageDir, installSkills, registerMcp, registrationMessage } from "./setup";
 
 const PORT = 4477;
@@ -19,11 +20,12 @@ async function main(): Promise<void> {
         port: PORT,
         uiDir: existsSync(path.join(uiDir, "index.html")) ? uiDir : undefined,
         claude: createClaudeIntegration({ skillsDir: path.join(pkgDir, "skills"), mcpUrl: `http://127.0.0.1:${PORT}/mcp` }),
+        openExternal: openWithOs,
       });
-      console.log(`review-app running at ${s.url}\nMCP endpoint: ${s.url}/mcp\nPress Ctrl+C to stop.`);
+      console.log(`Ferret running at ${s.url}\nMCP endpoint: ${s.url}/mcp\nPress Ctrl+C to stop.`);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-        console.error(`Port ${PORT} is busy. Is review-app already running? Open http://127.0.0.1:${PORT}`);
+        console.error(`Port ${PORT} is busy. Is Ferret already running? Open http://127.0.0.1:${PORT}`);
         process.exit(1);
       }
       throw err;

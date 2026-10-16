@@ -2,32 +2,43 @@ import type { ClaudeStatus, ReviewSummary } from "../../shared/api-types";
 import { countBySeverity, scopeLabel, SEVERITY_ICON } from "../../shared/findings";
 import { repoName } from "../../shared/paths";
 import { SEVERITIES, type Review } from "../../shared/schema";
+import logoUrl from "../logo.png";
 
 interface Props {
   reviews: ReviewSummary[];
   review: Review | null;
-  pendingCount: number;
   onSwitch(id: string): void;
-  onSend(): void;
   claude: ClaudeStatus | null; // null = this server has no Claude integration (hide the control)
   connecting: boolean;
   onConnect(): void;
+  onDelete(): void;
+  onClearAll(): void;
 }
 
-export function ConnectButton({ connecting, onConnect }: { connecting: boolean; onConnect(): void }) {
+export function ConnectButton({
+  connecting, onConnect, update = false,
+}: { connecting: boolean; onConnect(): void; update?: boolean }) {
   return (
-    <button className="btn connect" disabled={connecting} onClick={onConnect}>
-      {connecting ? "Connecting…" : "Connect Claude"}
+    <button
+      className="btn connect"
+      disabled={connecting}
+      onClick={onConnect}
+      title={update ? "Your installed /ai-review and /apply-review skills are older than this app" : undefined}
+    >
+      {connecting ? "Connecting…" : update ? "Update Claude" : "Connect Claude"}
     </button>
   );
 }
 
-export function Header({ reviews, review, pendingCount, onSwitch, onSend, claude, connecting, onConnect }: Props) {
+export function Header({
+  reviews, review, onSwitch, claude, connecting, onConnect, onDelete, onClearAll,
+}: Props) {
   const counts = review ? countBySeverity(review.findings) : null;
   return (
     <header className="header">
       <div className="header-title">
-        <strong>review-app</strong>
+        <img className="logo" src={logoUrl} alt="" width={20} height={20} />
+        <strong>Ferret</strong>
         {review && (
           <span className="muted" title={review.summary}>
             {repoName(review.repoRoot)} · {scopeLabel(review.scope)} · {review.findings.length} findings
@@ -52,15 +63,26 @@ export function Header({ reviews, review, pendingCount, onSwitch, onSend, claude
           ))}
         </select>
       )}
+      {review && (
+        <button className="btn quiet" title="Delete this review" onClick={onDelete}>
+          Delete
+        </button>
+      )}
+      {reviews.length > 1 && (
+        <button className="btn quiet" title="Delete all reviews" onClick={onClearAll}>
+          Clear all
+        </button>
+      )}
       {claude &&
         (claude.connected ? (
           <span className="claude-ok">✓ Claude connected</span>
         ) : (
-          <ConnectButton connecting={connecting} onConnect={onConnect} />
+          <ConnectButton
+            connecting={connecting}
+            onConnect={onConnect}
+            update={claude.skillsInstalled && claude.mcpRegistered && Boolean(claude.skillsOutdated)}
+          />
         ))}
-      <button className="send" disabled={pendingCount === 0} onClick={onSend}>
-        Send {pendingCount} to Claude ▶
-      </button>
     </header>
   );
 }

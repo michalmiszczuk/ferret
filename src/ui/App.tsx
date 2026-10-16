@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClaudeStatus, ReviewSummary } from "../shared/api-types";
-import { claudeOpenUrl } from "../shared/claude-link";
+import { claudeOpenUrl, realValue, vscodeFolderUrl } from "../shared/claude-link";
 import { navOrder, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
-import { connectClaude, fetchClaudeStatus, fetchReview, fetchReviews, patchFinding, subscribe } from "./api";
+import {
+  clearReviews, connectClaude, deleteReview, fetchClaudeStatus, fetchReview, fetchReviews, openInVsCode, patchFinding,
+  subscribe,
+} from "./api";
 import { CodeView } from "./components/CodeView";
 import { FindingsList } from "./components/FindingsList";
 import { ConnectButton, Header } from "./components/Header";
@@ -52,6 +55,15 @@ export function App() {
     }
   }, [loadClaude, showToast]);
 
+  /** Drop the open review; loadReviews() then picks the newest remaining one (or shows the empty state). */
+  const leaveReview = useCallback(() => {
+    reviewIdRef.current = null;
+    setReviewId(null);
+    setReview(null);
+    setSelectedId(null);
+    history.replaceState(null, "", "/");
+  }, []);
+
   const loadReviews = useCallback(async () => {
     const list = await fetchReviews();
     setReviews(list);
@@ -80,6 +92,11 @@ export function App() {
   useEffect(
     () =>
       subscribe((e) => {
+        if (e.type === "review-deleted") {
+          if (e.reviewId === reviewIdRef.current) leaveReview();
+          void loadReviews();
+          return;
+        }
         void loadReviews();
         if (e.type === "review-created") {
           setSelectedId(null);
@@ -92,8 +109,31 @@ export function App() {
             .catch(() => {});
         }
       }),
-    [loadReviews],
+    [loadReviews, leaveReview],
   );
+
+  const onDelete = useCallback(async () => {
+    if (!review) return;
+    if (!confirm(`Delete this review (${review.findings.length} findings)? This can't be undone.`)) return;
+    try {
+      await deleteReview(review.id);
+      leaveReview();
+      await loadReviews();
+    } catch (err) {
+      showToast(`Delete failed: ${(err as Error).message}`);
+    }
+  }, [review, leaveReview, loadReviews, showToast]);
+
+  const onClearAll = useCallback(async () => {
+    if (!confirm(`Delete all ${reviews.length} reviews? This can't be undone.`)) return;
+    try {
+      await clearReviews();
+      leaveReview();
+      await loadReviews();
+    } catch (err) {
+      showToast(`Clear failed: ${(err as Error).message}`);
+    }
+  }, [reviews.length, leaveReview, loadReviews, showToast]);
 
   useEffect(() => {
     const onPop = () => setReviewId(idFromUrl());
@@ -122,21 +162,42 @@ export function App() {
     [review, showToast],
   );
 
-  const pendingCount = review?.findings.filter((f) => f.status === "fix_requested").length ?? 0;
-
-  const onSend = async () => {
-    if (!review) return;
-    const text = `/apply-review ${review.id}`;
-    // Opens the Claude panel in VS Code with the prompt pre-filled (the user presses Enter).
-    // The clipboard copy is the fallback if VS Code doesn't come up.
-    location.href = claudeOpenUrl(text, review.sessionId);
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore: the toast still shows the text
-    }
-    showToast(`Opening Claude in VS Code: press Enter there. (Also copied: ${text})`, 6000);
-  };
+  /** Sends one finding to Claude with the user's message: saved on the finding, and pre-filled in Claude's prompt. */
+  const sendFinding = useCallback(
+    async (findingId: string, message: string) => {
+      if (!review) return;
+      const oneLine = message.replace(/\s+/g, " ").trim();
+      const text = `/apply-review ${review.id} ${findingId}${oneLine ? ` ${oneLine}` : ""}`;
+      // Copy first, while this window still has focus: VS Code takes focus next, and if the Claude tab is
+      // already open the extension only focuses it (it won't pre-fill), so the user pastes.
+      let copied = true;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        copied = false;
+      }
+      await update(findingId, { myNote: message, status: "fix_requested" });
+      // 1) Focus the VS Code window of the Claude session's folder, 2) open the Claude panel there with the
+      // prompt pre-filled (the user presses Enter). The clipboard copy is the fallback if VS Code doesn't come up.
+      const folder = realValue(review.projectDir);
+      const urls = [
+        ...(folder && realValue(review.sessionId) ? [vscodeFolderUrl(folder)] : []),
+        claudeOpenUrl(text, review.sessionId),
+      ];
+      try {
+        await openInVsCode(urls); // the app opens them: no browser click-timing limits
+      } catch {
+        location.href = urls[urls.length - 1]; // older server: open the Claude link directly
+      }
+      showToast(
+        copied
+          ? "Claude opened in VS Code. If the box is empty, press Ctrl+V, then Enter."
+          : `Claude opened in VS Code. Type: ${text}`,
+        8000,
+      );
+    },
+    [review, update, showToast],
+  );
 
   // Keyboard: j/k move, f fix, d dismiss, n note, Esc leaves the note.
   useEffect(() => {
@@ -154,8 +215,7 @@ export function App() {
         e.preventDefault();
         noteRef.current?.focus();
       } else if (selected && (selected.status === "open" || selected.status === "fix_requested")) {
-        if (e.key === "f") void update(selected.id, { status: selected.status === "fix_requested" ? "open" : "fix_requested" });
-        else if (e.key === "d") void update(selected.id, { status: "dismissed" });
+        if (e.key === "d") void update(selected.id, { status: "dismissed" });
       }
     };
     addEventListener("keydown", onKey);
@@ -167,15 +227,15 @@ export function App() {
       <Header
         reviews={reviews}
         review={review}
-        pendingCount={pendingCount}
         onSwitch={(id) => {
           setSelectedId(null);
           setReviewId(id);
         }}
-        onSend={onSend}
         claude={claude}
         connecting={connecting}
         onConnect={onConnect}
+        onDelete={onDelete}
+        onClearAll={onClearAll}
       />
       {!review ? (
         // Keep the two-pane layout even when there is nothing to show yet.
@@ -223,7 +283,14 @@ export function App() {
             onToggleDone={() => setDoneOpen((o) => !o)}
           />
           {selected ? (
-            <CodeView review={review} finding={selected} onSelect={setSelectedId} onUpdate={update} noteRef={noteRef} />
+            <CodeView
+              review={review}
+              finding={selected}
+              onSelect={setSelectedId}
+              onUpdate={update}
+              onSend={sendFinding}
+              noteRef={noteRef}
+            />
           ) : (
             <div className="welcome">{review.findings.length === 0 ? "Clean review. No findings 🎉" : "Select a finding."}</div>
           )}

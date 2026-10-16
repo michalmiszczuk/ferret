@@ -11,10 +11,11 @@ interface Props {
   finding: Finding;
   onSelect(id: string): void;
   onUpdate(findingId: string, patch: FindingPatch): void;
+  onSend(findingId: string, message: string): void;
   noteRef: Ref<HTMLTextAreaElement>;
 }
 
-export function CodeView({ review, finding, onSelect, onUpdate, noteRef }: Props) {
+export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef }: Props) {
   const [file, setFile] = useState<FileResponse | null>(null);
   const [tokens, setTokens] = useState<Tok[][] | null>(null);
   const [codeBg, setCodeBg] = useState<string | undefined>(undefined);
@@ -67,7 +68,14 @@ export function CodeView({ review, finding, onSelect, onUpdate, noteRef }: Props
     </div>
   );
   const card = (state: Anchor["anchor"] | "missing") => (
-    <CommentCard key={finding.id} finding={finding} anchor={state} onUpdate={(p) => onUpdate(finding.id, p)} noteRef={noteRef} />
+    <CommentCard
+      key={finding.id}
+      finding={finding}
+      anchor={state}
+      onUpdate={(p) => onUpdate(finding.id, p)}
+      onSend={(m) => onSend(finding.id, m)}
+      noteRef={noteRef}
+    />
   );
 
   if (error) {

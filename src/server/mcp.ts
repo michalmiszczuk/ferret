@@ -21,7 +21,7 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string): Mc
     {
       title: "Submit code review",
       description:
-        "Save a finished code review so the user can triage it in review-app. Call once at the end of a review with ALL findings. Returns the review id and the URL to show the user.",
+        "Save a finished code review so the user can triage it in Ferret (review-app). Call once at the end of a review with ALL findings. Returns the review id and the URL to show the user.",
       inputSchema: submitReviewShape,
     },
     async (input) => {
@@ -39,12 +39,15 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string): Mc
     {
       title: "Get pending review actions",
       description:
-        "Returns the findings the user marked 'Fix' in review-app (with their notes) and marks them as 'fixing'. Omit reviewId to use the most recent review. After fixing each one, call mark_done.",
-      inputSchema: { reviewId: z.string().optional().describe("Review id, e.g. r_8f3k2a. Omit for the latest review.") },
+        "Returns the findings the user sent to Claude from Ferret (with their message in myNote) and marks them as 'fixing'. Omit reviewId to use the most recent review; pass findingIds to take only those. After handling each one, call mark_done.",
+      inputSchema: {
+        reviewId: z.string().optional().describe("Review id, e.g. r_8f3k2a. Omit for the latest review."),
+        findingIds: z.array(z.string()).optional().describe("Only these findings, e.g. [\"f2\"]. Omit for all sent findings."),
+      },
     },
-    async ({ reviewId }) => {
+    async ({ reviewId, findingIds }) => {
       try {
-        const { review, findings } = await store.takePending(reviewId);
+        const { review, findings } = await store.takePending(reviewId, findingIds);
         const actions = await Promise.all(
           findings.map(async (f) => {
             const a = await anchorFinding(review.repoRoot, f);
@@ -68,7 +71,7 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string): Mc
           repoRoot: review.repoRoot,
           actions,
           ...(actions.length === 0
-            ? { message: "Nothing pending. Ask the user to mark findings with 'Fix' in review-app first." }
+            ? { message: "Nothing pending. Ask the user to click 'Send to Claude' on a finding in Ferret first." }
             : {}),
         });
       } catch (err) {

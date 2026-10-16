@@ -98,6 +98,8 @@ button.send:disabled { background: transparent; border-color: var(--border); col
   border-bottom: 1px solid var(--border);
 }
 .header-title { display: flex; gap: 10px; align-items: baseline; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header-title { align-items: center; }
+.header-title .logo { flex: none; border-radius: 5px; }
 .header-title strong { font-size: 13px; font-weight: 600; }
 .counts { display: flex; gap: 10px; white-space: nowrap; color: var(--muted); }
 .header select { max-width: 320px; }
@@ -251,6 +253,8 @@ textarea::placeholder { color: var(--faint); }
 .btn.connect { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .btn.connect:hover { background: var(--accent-tint); }
 .btn.connect:disabled { opacity: 0.6; cursor: default; }
+.btn.quiet { border-color: transparent; color: var(--muted); font-size: 11px; padding: 0 8px; }
+.btn.quiet:hover { color: var(--critical); background: var(--raised); }
 .claude-ok { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
 .get-started { color: var(--text); max-width: 560px; }

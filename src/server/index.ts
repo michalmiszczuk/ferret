@@ -29,11 +29,12 @@ export function createApp(opts: {
   getPort: () => number;
   uiDir?: string;
   claude?: ClaudeIntegration;
+  openExternal?: (url: string) => Promise<void>;
 }): express.Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(hostGuard(opts.getPort));
-  app.use("/api", createApiRouter(opts.store, opts.claude));
+  app.use("/api", createApiRouter(opts.store, opts.claude, opts.openExternal));
   mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`);
   if (opts.uiDir) {
     const uiDir = opts.uiDir;
@@ -55,12 +56,25 @@ export interface RunningServer {
 }
 
 export async function startServer(
-  opts: { port?: number; home?: string; uiDir?: string; log?: (m: string) => void; claude?: ClaudeIntegration } = {},
+  opts: {
+    port?: number;
+    home?: string;
+    uiDir?: string;
+    log?: (m: string) => void;
+    claude?: ClaudeIntegration;
+    openExternal?: (url: string) => Promise<void>;
+  } = {},
 ): Promise<RunningServer> {
   const store = new ReviewStore(path.join(opts.home ?? defaultHome(), "reviews"), opts.log);
   await store.load();
   let port = opts.port ?? 4477;
-  const app = createApp({ store, getPort: () => port, uiDir: opts.uiDir, claude: opts.claude });
+  const app = createApp({
+    store,
+    getPort: () => port,
+    uiDir: opts.uiDir,
+    claude: opts.claude,
+    openExternal: opts.openExternal,
+  });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));
     s.on("error", reject);

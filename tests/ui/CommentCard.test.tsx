@@ -14,7 +14,7 @@ function setup(f: Partial<Finding> = {}, anchor: "exact" | "moved" | "lost" | "m
     severity: "critical", category: "security", title: "Token never expires",
     body: "Sessions are **never** checked.", suggestion: "Check `expiresAt`.", snippet: "return s.user", ...f,
   });
-  render(<CommentCard finding={finding} anchor={anchor} onUpdate={onUpdate} />);
+  render(<CommentCard finding={finding} anchor={anchor} onUpdate={onUpdate} onSend={onUpdate} />);
   return onUpdate;
 }
 
@@ -28,15 +28,11 @@ describe("CommentCard", () => {
     expect(screen.getByText("expiresAt").tagName).toBe("CODE");
   });
 
-  it("Fix toggles fix_requested on and off", async () => {
-    const onUpdate = setup();
-    await userEvent.click(screen.getByRole("button", { name: "Fix" }));
-    expect(onUpdate).toHaveBeenLastCalledWith({ status: "fix_requested" });
-    cleanup();
-
-    const onUpdate2 = setup({ status: "fix_requested" });
-    await userEvent.click(screen.getByRole("button", { name: /Fix requested/ }));
-    expect(onUpdate2).toHaveBeenLastCalledWith({ status: "open" });
+  it("Send to Claude sends the typed message", async () => {
+    const onSend = setup();
+    await userEvent.type(screen.getByLabelText("Message to Claude"), "keep the API");
+    await userEvent.click(screen.getByRole("button", { name: /Send to Claude/ }));
+    expect(onSend).toHaveBeenLastCalledWith("keep the API");
   });
 
   it("Dismiss sets dismissed", async () => {
@@ -56,7 +52,7 @@ describe("CommentCard", () => {
 
   it("saves the note on blur only when it changed", async () => {
     const onUpdate = setup();
-    const note = screen.getByLabelText("Note to Claude");
+    const note = screen.getByLabelText("Message to Claude");
     await userEvent.click(note);
     await userEvent.tab();
     expect(onUpdate).not.toHaveBeenCalled();
@@ -67,7 +63,7 @@ describe("CommentCard", () => {
 
   it("while fixing: no Fix/Dismiss, offers Reset to open", async () => {
     const onUpdate = setup({ status: "fixing" });
-    expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send to Claude/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Reset to open" }));
     expect(onUpdate).toHaveBeenCalledWith({ status: "open" });

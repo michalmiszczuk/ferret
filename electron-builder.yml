@@ -1,11 +1,12 @@
 appId: com.reviewapp.desktop
-productName: review-app
+productName: Ferret
 directories:
   output: release
   buildResources: build
 files:
   - dist/**/*
   - skills/**/*
+  - build/icon.png
   - package.json
 asarUnpack:
   - dist/ui/**

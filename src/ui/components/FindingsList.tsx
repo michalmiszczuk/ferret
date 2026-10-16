@@ -19,7 +19,7 @@ const STATUS_OPTIONS: [StatusFilter, string][] = [
 
 const STATUS_BADGE: Record<FindingStatus, string> = {
   open: "",
-  fix_requested: "Fix ✓",
+  fix_requested: "Sent ✓",
   fixing: "Fixing…",
   fixed: "✅ Fixed",
   skipped: "⏭ Skipped",

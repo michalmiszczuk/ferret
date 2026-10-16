@@ -21,7 +21,10 @@ let settings: DesktopSettings = { openAtLogin: false };
 let quitting = false;
 let sessionEnding = false;
 
-const icon = (size: number) => nativeImage.createFromBuffer(makeIconPng(size));
+// The Ferret logo (build/icon.png, shipped in the app); the generated bars icon is the fallback.
+const logo = nativeImage.createFromPath(path.join(app.getAppPath(), "build", "icon.png"));
+const icon = (size: number) =>
+  logo.isEmpty() ? nativeImage.createFromBuffer(makeIconPng(size)) : logo.resize({ width: size, height: size, quality: "best" });
 
 function showWindow(): void {
   if (!win) return;
@@ -50,7 +53,7 @@ function createWindow(url: string, hidden: boolean): void {
     width: 1400,
     height: 900,
     show: false,
-    title: "review-app",
+    title: "Ferret",
     backgroundColor: "#1e1e1e",
     icon: icon(256),
     autoHideMenuBar: true,
@@ -88,7 +91,7 @@ function buildTrayMenu(): Menu {
   const login = loginItemPlan(app.isPackaged, settings.openAtLogin);
   const loginLabel = process.platform === "darwin" ? "Start at login" : "Start with Windows";
   return Menu.buildFromTemplate([
-    { label: "Open review-app", click: showWindow },
+    { label: "Open Ferret", click: showWindow },
     { type: "separator" },
     {
       label: login.enabled ? loginLabel : `${loginLabel} (installed app only)`,
@@ -104,9 +107,12 @@ function buildTrayMenu(): Menu {
 }
 
 function createTray(): void {
-  // 32px bars on transparent, marked @2x so Windows shows them crisp at 16 DIP (and larger on high-DPI).
-  tray = new Tray(nativeImage.createFromBuffer(makeIconPng(32, { transparent: true }), { scaleFactor: 2 }));
-  tray.setToolTip("review-app");
+  // 32px marked @2x so Windows shows it crisp at 16 DIP (and larger on high-DPI).
+  const trayImage = logo.isEmpty()
+    ? nativeImage.createFromBuffer(makeIconPng(32, { transparent: true }), { scaleFactor: 2 })
+    : nativeImage.createFromBuffer(logo.resize({ width: 32, height: 32, quality: "best" }).toPNG(), { scaleFactor: 2 });
+  tray = new Tray(trayImage);
+  tray.setToolTip("Ferret");
   tray.setContextMenu(buildTrayMenu());
   tray.on("click", showWindow);
 }
@@ -171,9 +177,10 @@ async function start(): Promise<void> {
       port: PORT,
       uiDir: unpackedPath(path.join(app.getAppPath(), "dist", "ui")),
       claude: claudeIntegration,
+      openExternal: (url) => shell.openExternal(url),
     });
   } catch (err) {
-    dialog.showErrorBox("review-app could not start", startupErrorMessage(err, PORT));
+    dialog.showErrorBox("Ferret could not start", startupErrorMessage(err, PORT));
     app.exit(1);
     return;
   }

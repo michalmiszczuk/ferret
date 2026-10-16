@@ -8,10 +8,12 @@ interface Props {
   finding: Finding;
   anchor: Anchor["anchor"] | "missing";
   onUpdate(patch: FindingPatch): void;
+  /** Send this finding to Claude with the user's message (empty = "just fix it"). */
+  onSend(message: string): void;
   noteRef?: Ref<HTMLTextAreaElement>;
 }
 
-export function CommentCard({ finding: f, anchor, onUpdate, noteRef }: Props) {
+export function CommentCard({ finding: f, anchor, onUpdate, onSend, noteRef }: Props) {
   const [note, setNote] = useState(f.myNote ?? "");
   useEffect(() => setNote(f.myNote ?? ""), [f.id, f.myNote]);
 
@@ -58,29 +60,33 @@ export function CommentCard({ finding: f, anchor, onUpdate, noteRef }: Props) {
       )}
 
       <label className="label" htmlFor={noteId}>
-        Note to Claude
+        Message to Claude
       </label>
       <textarea
         id={noteId}
         ref={noteRef}
         rows={2}
         value={note}
-        placeholder="e.g. fix it, but keep the public API"
+        placeholder="Tell Claude what to do, e.g. “fix it but keep the public API” or “is this really a problem?”. Empty = just fix it."
         onChange={(e) => setNote(e.target.value)}
         onBlur={() => {
           if (note !== (f.myNote ?? "")) onUpdate({ myNote: note });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && actionable) {
+            e.preventDefault();
+            onSend(note);
+          }
         }}
       />
 
       <div className="actions">
         {actionable && (
-          <button
-            className={`btn fix${f.status === "fix_requested" ? " on" : ""}`}
-            onClick={() => onUpdate({ status: f.status === "fix_requested" ? "open" : "fix_requested" })}
-          >
-            {f.status === "fix_requested" ? "Fix requested ✓" : "Fix"}
+          <button className="btn fix" title="Ctrl+Enter" onClick={() => onSend(note)}>
+            {f.status === "fix_requested" ? "Send again ▶" : "Send to Claude ▶"}
           </button>
         )}
+        {f.status === "fix_requested" && <span className="muted sent">Sent, waiting for Claude</span>}
         {actionable && (
           <button className="btn" onClick={() => onUpdate({ status: "dismissed" })}>
             Dismiss

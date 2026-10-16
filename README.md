@@ -1,6 +1,6 @@
-# review-app
+# Ferret 🦦
 
-A local triage desk for AI code reviews. Claude Code sends findings in, you triage them (🔴 → 🟢, code with inline comments), and Claude fixes the ones you pick.
+Ferret out bugs: a local triage desk for AI code reviews. Claude Code sends findings in, you triage them (🔴 → 🟢, code with inline comments), and Claude fixes the ones you pick.
 
 ## Desktop app (Windows)
 

@@ -41,11 +41,27 @@ export function createClaudeIntegration(opts: ClaudeIntegrationOptions): ClaudeI
     }
   }
 
+  /** Installed copy differs from the one this app ships (e.g. the app was updated) → needs reinstalling. */
+  async function skillOutdated(name: string): Promise<boolean> {
+    const read = (p: string) => fs.readFile(p, "utf8").then((t) => t.replace(/\r\n/g, "\n"), () => null);
+    const [installed, bundled] = await Promise.all([
+      read(path.join(claudeHome, "skills", name, "SKILL.md")),
+      read(path.join(opts.skillsDir, name, "SKILL.md")),
+    ]);
+    return installed !== null && bundled !== null && installed !== bundled;
+  }
+
   async function status(): Promise<ClaudeStatus> {
     const skills = await Promise.all(SKILL_NAMES.map((n) => exists(path.join(claudeHome, "skills", n, "SKILL.md"))));
     const skillsInstalled = skills.every(Boolean);
+    const skillsOutdated = (await Promise.all(SKILL_NAMES.map(skillOutdated))).some(Boolean);
     const registered = await mcpRegistered();
-    return { connected: skillsInstalled && registered, skillsInstalled, mcpRegistered: registered };
+    return {
+      connected: skillsInstalled && !skillsOutdated && registered,
+      skillsInstalled,
+      skillsOutdated,
+      mcpRegistered: registered,
+    };
   }
 
   async function connect(): Promise<ClaudeConnectResult> {

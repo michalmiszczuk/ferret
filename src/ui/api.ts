@@ -22,7 +22,20 @@ export const patchFinding = (id: string, findingId: string, patch: FindingPatch)
     body: JSON.stringify(patch),
   }).then((r) => json<Finding>(r));
 
-export const fetchClaudeStatus = () => fetch("/api/claude/status").then((r) => json<ClaudeStatus>(r));
+/** Asks the app to open vscode:// links in order (with a pause between). Rejects if the server can't. */
+export const openInVsCode = (urls: string[]) =>
+  fetch("/api/open-vscode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  }).then((r) => json<{ ok: boolean }>(r));
+
+export const deleteReview =(id: string) =>
+  fetch(`/api/reviews/${enc(id)}`, { method: "DELETE" }).then((r) => json<{ deleted: number }>(r));
+
+export const clearReviews = () => fetch("/api/reviews", { method: "DELETE" }).then((r) => json<{ deleted: number }>(r));
+
+export const fetchClaudeStatus =() => fetch("/api/claude/status").then((r) => json<ClaudeStatus>(r));
 
 export const connectClaude = () =>
   fetch("/api/claude/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) =>

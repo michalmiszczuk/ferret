@@ -37,7 +37,7 @@ Bugs, security problems, performance issues, and maintainability problems. Only 
 
 ## 5. Submit
 
-Call `submit_review` with `repoRoot`, `scope`, a one-paragraph `summary`, all `findings`, and `sessionId: "${CLAUDE_SESSION_ID}"` (this session's id, so the app's "Send to Claude" can come back to this conversation).
+Call `submit_review` with `repoRoot`, `scope`, a one-paragraph `summary`, all `findings`, `sessionId: "${CLAUDE_SESSION_ID}"` and `projectDir: "${CLAUDE_PROJECT_DIR}"` (this session's id and folder, so the app's "Send to Claude" can come back to this conversation in the right VS Code window).
 
 - If the tool returns a validation error, fix the offending fields and call it again.
 - If the `review-app` tool is unavailable or the connection fails, the app is probably not running:
