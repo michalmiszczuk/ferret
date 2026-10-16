@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { findPackageDir, installSkills, SKILL_NAMES } from "../../src/cli/setup";
+import { findPackageDir, installSkills, registrationMessage, SKILL_NAMES } from "../../src/cli/setup";
 import { tmpDir } from "../helpers";
 
 const pkgDir = findPackageDir(fileURLToPath(import.meta.url));
@@ -36,5 +36,35 @@ describe("installSkills", () => {
       const installed = await fs.readFile(path.join(claudeHome, "skills", n, "SKILL.md"), "utf8");
       expect(installed).toContain(`name: ${n}`);
     }
+  });
+});
+
+describe("registrationMessage", () => {
+  const url = "http://127.0.0.1:4477/mcp";
+
+  it("confirms success", () => {
+    expect(registrationMessage({ ok: true, output: "" }, url)).toBe(
+      "Registered MCP server 'review-app' with Claude Code (user scope).",
+    );
+  });
+
+  it("shows the error output and the manual command on failure", () => {
+    const msg = registrationMessage({ ok: false, output: "MCP server review-app already exists" }, url);
+    expect(msg).toContain("MCP server review-app already exists");
+    expect(msg).toContain("If it is already registered, ignore this.");
+    expect(msg).toContain(`claude mcp add --transport http --scope user review-app ${url}`);
+  });
+
+  it("handles a failure with no output (e.g. claude not on PATH)", () => {
+    expect(registrationMessage({ ok: false, output: "" }, url)).toMatch(/^Could not register the MCP server automatically\./);
+  });
+});
+
+describe("skills launch rule", () => {
+  it.each(SKILL_NAMES)("%s tells Claude how to launch the desktop app and when to ask for /mcp", async (name) => {
+    const text = await fs.readFile(path.join(pkgDir, "skills", name, "SKILL.md"), "utf8");
+    expect(text).toContain("review-app://open");
+    expect(text).toContain("Start-Process review-app://open");
+    expect(text).toContain("/mcp");
   });
 });

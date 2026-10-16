@@ -58,6 +58,11 @@ describe("MCP tools", () => {
     expect(srv.store.get(out.reviewId)).toBeDefined();
   });
 
+  it("submit_review keeps the Claude session id so Send can return to that conversation", async () => {
+    const out = data(await call("submit_review", { ...makeReviewInput(repo), sessionId: "sess-123" }));
+    expect(srv.store.get(out.reviewId)!.sessionId).toBe("sess-123");
+  });
+
   it("submit_review rejects invalid findings with a useful message", async () => {
     const input = makeReviewInput(repo);
     input.findings[0].lineEnd = 0;

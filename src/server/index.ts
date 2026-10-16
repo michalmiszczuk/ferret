@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createApiRouter } from "./api";
+import type { ClaudeIntegration } from "./claude";
 import { mountMcp } from "./mcp";
 import { ReviewStore } from "./store";
 
@@ -23,11 +24,16 @@ export function hostGuard(getPort: () => number): RequestHandler {
   };
 }
 
-export function createApp(opts: { store: ReviewStore; getPort: () => number; uiDir?: string }): express.Express {
+export function createApp(opts: {
+  store: ReviewStore;
+  getPort: () => number;
+  uiDir?: string;
+  claude?: ClaudeIntegration;
+}): express.Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(hostGuard(opts.getPort));
-  app.use("/api", createApiRouter(opts.store));
+  app.use("/api", createApiRouter(opts.store, opts.claude));
   mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`);
   if (opts.uiDir) {
     const uiDir = opts.uiDir;
@@ -49,12 +55,12 @@ export interface RunningServer {
 }
 
 export async function startServer(
-  opts: { port?: number; home?: string; uiDir?: string; log?: (m: string) => void } = {},
+  opts: { port?: number; home?: string; uiDir?: string; log?: (m: string) => void; claude?: ClaudeIntegration } = {},
 ): Promise<RunningServer> {
   const store = new ReviewStore(path.join(opts.home ?? defaultHome(), "reviews"), opts.log);
   await store.load();
   let port = opts.port ?? 4477;
-  const app = createApp({ store, getPort: () => port, uiDir: opts.uiDir });
+  const app = createApp({ store, getPort: () => port, uiDir: opts.uiDir, claude: opts.claude });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));
     s.on("error", reject);

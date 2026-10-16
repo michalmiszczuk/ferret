@@ -38,6 +38,10 @@ export const submitReviewShape = {
   scope: scopeSchema,
   summary: z.string().min(1).describe("Short overall verdict"),
   findings: z.array(findingInputSchema),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("The Claude Code session id (${CLAUDE_SESSION_ID}) so 'Send to Claude' can return to this conversation"),
 };
 export const submitReviewSchema = z.object(submitReviewShape);
 export type SubmitReviewInput = z.infer<typeof submitReviewSchema>;
@@ -68,6 +72,7 @@ export const reviewSchema = z.object({
   scope: scopeSchema,
   summary: z.string(),
   agent: z.literal("claude"),
+  sessionId: z.string().optional(),
   findings: z.array(findingSchema),
 });
 export type Review = z.infer<typeof reviewSchema>;

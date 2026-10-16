@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createClaudeIntegration } from "../server/claude";
 import { startServer } from "../server/index";
-import { findPackageDir, installSkills, registerMcp } from "./setup";
+import { findPackageDir, installSkills, registerMcp, registrationMessage } from "./setup";
 
 const PORT = 4477;
 
@@ -14,7 +15,11 @@ async function main(): Promise<void> {
   if (cmd === "start") {
     const uiDir = path.join(pkgDir, "dist", "ui");
     try {
-      const s = await startServer({ port: PORT, uiDir: existsSync(path.join(uiDir, "index.html")) ? uiDir : undefined });
+      const s = await startServer({
+        port: PORT,
+        uiDir: existsSync(path.join(uiDir, "index.html")) ? uiDir : undefined,
+        claude: createClaudeIntegration({ skillsDir: path.join(pkgDir, "skills"), mcpUrl: `http://127.0.0.1:${PORT}/mcp` }),
+      });
       console.log(`review-app running at ${s.url}\nMCP endpoint: ${s.url}/mcp\nPress Ctrl+C to stop.`);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
@@ -31,14 +36,7 @@ async function main(): Promise<void> {
     for (const dir of await installSkills(path.join(pkgDir, "skills"), claudeHome)) console.log(`Installed skill: ${dir}`);
     const url = `http://127.0.0.1:${PORT}/mcp`;
     const res = await registerMcp(url);
-    if (res.ok) {
-      console.log("Registered MCP server 'review-app' with Claude Code (user scope).");
-    } else {
-      console.log(
-        `Could not register the MCP server automatically${res.output ? `:\n${res.output}` : "."}\n` +
-          `If it is already registered, ignore this. Otherwise run:\n  claude mcp add --transport http --scope user review-app ${url}`,
-      );
-    }
+    console.log(registrationMessage(res, url));
     return;
   }
 

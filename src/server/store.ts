@@ -71,6 +71,7 @@ export class ReviewStore extends EventEmitter {
       scope: input.scope,
       summary: input.summary,
       agent: "claude",
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       findings,
     };
     this.reviews.set(review.id, review);

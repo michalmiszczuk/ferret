@@ -36,3 +36,12 @@ export function registerMcp(url: string): Promise<{ ok: boolean; output: string 
     );
   });
 }
+
+/** Human-readable result of registerMcp(), shared by `review-app setup` and the desktop tray action. */
+export function registrationMessage(res: { ok: boolean; output: string }, url: string): string {
+  if (res.ok) return "Registered MCP server 'review-app' with Claude Code (user scope).";
+  return (
+    `Could not register the MCP server automatically${res.output ? `:\n${res.output}` : "."}\n` +
+    `If it is already registered, ignore this. Otherwise run:\n  claude mcp add --transport http --scope user review-app ${url}`
+  );
+}

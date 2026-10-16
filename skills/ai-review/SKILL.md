@@ -37,10 +37,13 @@ Bugs, security problems, performance issues, and maintainability problems. Only 
 
 ## 5. Submit
 
-Call `submit_review` with `repoRoot`, `scope`, a one-paragraph `summary`, and all `findings`.
+Call `submit_review` with `repoRoot`, `scope`, a one-paragraph `summary`, all `findings`, and `sessionId: "${CLAUDE_SESSION_ID}"` (this session's id, so the app's "Send to Claude" can come back to this conversation).
 
 - If the tool returns a validation error, fix the offending fields and call it again.
-- If the `review-app` tool is unavailable or the connection fails: tell the user "review-app isn't running. Start it with `review-app` in a terminal, then tell me to retry." Keep the findings and resubmit when asked.
+- If the `review-app` tool is unavailable or the connection fails, the app is probably not running:
+  1. Launch it. Windows (PowerShell): `Start-Process review-app://open`. Windows (Git Bash): `cmd //c start "" review-app://open`. macOS: `open review-app://open`.
+  2. Wait about 5 seconds, then call `submit_review` once more.
+  3. If it still fails, tell the user: "review-app is starting but Claude Code isn't connected to it yet. Run `/mcp`, reconnect `review-app`, then tell me to retry." If launching failed because the app isn't installed, say: "Start review-app (desktop app, or `review-app` in a terminal), then tell me to retry." Keep the findings and resubmit when asked.
 
 ## 6. Reply
 

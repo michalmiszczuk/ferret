@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReviewSummary } from "../shared/api-types";
+import type { ClaudeStatus, ReviewSummary } from "../shared/api-types";
+import { claudeOpenUrl } from "../shared/claude-link";
 import { navOrder, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
-import { fetchReview, fetchReviews, patchFinding, subscribe } from "./api";
+import { connectClaude, fetchClaudeStatus, fetchReview, fetchReviews, patchFinding, subscribe } from "./api";
 import { CodeView } from "./components/CodeView";
 import { FindingsList } from "./components/FindingsList";
-import { Header } from "./components/Header";
+import { ConnectButton, Header } from "./components/Header";
 
 function idFromUrl(): string | null {
   const m = location.pathname.match(/^\/r\/([\w-]+)/);
@@ -24,10 +25,32 @@ export function App() {
   const reviewIdRef = useRef(reviewId);
   reviewIdRef.current = reviewId;
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, ms = 3000) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), ms);
   }, []);
+
+  // Claude Code connection (skills + MCP). null = this server can't do it (e.g. plain `review-app start`).
+  const [claude, setClaude] = useState<ClaudeStatus | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const loadClaude = useCallback(() => {
+    fetchClaudeStatus()
+      .then(setClaude)
+      .catch(() => setClaude(null));
+  }, []);
+  useEffect(loadClaude, [loadClaude]);
+  const onConnect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      const res = await connectClaude();
+      showToast(res.message, 8000);
+    } catch (err) {
+      showToast(`Connecting failed: ${(err as Error).message}`, 8000);
+    } finally {
+      setConnecting(false);
+      loadClaude();
+    }
+  }, [loadClaude, showToast]);
 
   const loadReviews = useCallback(async () => {
     const list = await fetchReviews();
@@ -104,12 +127,15 @@ export function App() {
   const onSend = async () => {
     if (!review) return;
     const text = `/apply-review ${review.id}`;
+    // Opens the Claude panel in VS Code with the prompt pre-filled (the user presses Enter).
+    // The clipboard copy is the fallback if VS Code doesn't come up.
+    location.href = claudeOpenUrl(text, review.sessionId);
     try {
       await navigator.clipboard.writeText(text);
-      showToast("Copied. Paste it into Claude in VS Code.");
     } catch {
-      showToast(`Copy failed. Type this into Claude: ${text}`);
+      // ignore: the toast still shows the text
     }
+    showToast(`Opening Claude in VS Code: press Enter there. (Also copied: ${text})`, 6000);
   };
 
   // Keyboard: j/k move, f fix, d dismiss, n note, Esc leaves the note.
@@ -147,16 +173,43 @@ export function App() {
           setReviewId(id);
         }}
         onSend={onSend}
+        claude={claude}
+        connecting={connecting}
+        onConnect={onConnect}
       />
       {!review ? (
-        <div className="welcome">
-          {reviews.length === 0 ? (
-            <>
-              No reviews yet. Run <code>/ai-review</code> in Claude Code.
-            </>
-          ) : (
-            "Loading…"
-          )}
+        // Keep the two-pane layout even when there is nothing to show yet.
+        <div className="main">
+          <FindingsList
+            findings={[]}
+            filters={filters}
+            onFiltersChange={setFilters}
+            selectedId={null}
+            onSelect={() => {}}
+            doneOpen={false}
+            onToggleDone={() => {}}
+          />
+          <div className="welcome">
+            {reviews.length === 0 ? (
+              <div className="get-started">
+                <p>No reviews yet.</p>
+                <ol>
+                  {claude && !claude.connected && (
+                    <li>
+                      <ConnectButton connecting={connecting} onConnect={onConnect} />
+                      <span className="muted">installs the /ai-review skill and links Claude Code to this app</span>
+                    </li>
+                  )}
+                  <li>Start a new Claude Code session in your project.</li>
+                  <li>
+                    Run <code>/ai-review</code> (uncommitted changes) or <code>/ai-review src/some/folder</code>.
+                  </li>
+                </ol>
+              </div>
+            ) : (
+              "Loading…"
+            )}
+          </div>
         </div>
       ) : (
         <div className="main">

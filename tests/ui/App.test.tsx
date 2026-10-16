@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
   patchFinding: vi.fn(),
   fetchFile: vi.fn(),
   subscribe: vi.fn(),
+  fetchClaudeStatus: vi.fn(),
+  connectClaude: vi.fn(),
 }));
 vi.mock("../../src/ui/api", () => api);
 vi.mock("../../src/ui/components/CodeView", () => ({
@@ -53,10 +55,57 @@ beforeEach(() => {
     emit = fn;
     return () => {};
   });
+  api.fetchClaudeStatus.mockResolvedValue({ connected: true, skillsInstalled: true, mcpRegistered: true });
+});
+
+describe("Connect Claude", () => {
+  it("offers Connect Claude when not connected, and shows connected after clicking", async () => {
+    api.fetchReviews.mockResolvedValue([]);
+    api.fetchClaudeStatus
+      .mockResolvedValueOnce({ connected: false, skillsInstalled: false, mcpRegistered: false })
+      .mockResolvedValue({ connected: true, skillsInstalled: true, mcpRegistered: true });
+    api.connectClaude.mockResolvedValue({ ok: true, message: "Claude connected. Start a new Claude Code session and run /ai-review." });
+    render(<App />);
+
+    const buttons = await screen.findAllByRole("button", { name: "Connect Claude" });
+    expect(buttons.length).toBeGreaterThan(0); // header + getting-started step
+    await userEvent.click(buttons[0]);
+
+    expect(api.connectClaude).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(/Claude connected\. Start a new Claude Code session/)).toBeTruthy(); // toast
+    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "Connect Claude" })).toBeNull());
+    expect(screen.getByText("✓ Claude connected")).toBeTruthy();
+  });
+
+  it("shows the failure message when connecting fails", async () => {
+    api.fetchReviews.mockResolvedValue([]);
+    api.fetchClaudeStatus.mockResolvedValue({ connected: false, skillsInstalled: false, mcpRegistered: false });
+    api.connectClaude.mockResolvedValue({ ok: false, message: "Could not register the MCP server automatically." });
+    render(<App />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Connect Claude" }))[0]);
+    expect(await screen.findByText(/Could not register the MCP server/)).toBeTruthy();
+  });
+
+  it("hides the button when the server has no Claude integration (status unavailable)", async () => {
+    api.fetchClaudeStatus.mockRejectedValue(new Error("404"));
+    render(<App />);
+    await screen.findByTestId("code-view");
+    expect(screen.queryByRole("button", { name: "Connect Claude" })).toBeNull();
+  });
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe("App with no reviews", () => {
+  it("keeps the findings panel layout instead of a blank page", async () => {
+    api.fetchReviews.mockResolvedValue([]);
+    render(<App />);
+    expect(await screen.findByText("No findings yet.")).toBeTruthy();
+    expect(screen.getByText("Findings")).toBeTruthy();
+    expect(screen.getByText(/No reviews yet/)).toBeTruthy();
+  });
 });
 
 describe("App review switching", () => {

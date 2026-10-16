@@ -1,4 +1,4 @@
-import type { ReviewSummary } from "../../shared/api-types";
+import type { ClaudeStatus, ReviewSummary } from "../../shared/api-types";
 import { countBySeverity, scopeLabel, SEVERITY_ICON } from "../../shared/findings";
 import { repoName } from "../../shared/paths";
 import { SEVERITIES, type Review } from "../../shared/schema";
@@ -9,9 +9,20 @@ interface Props {
   pendingCount: number;
   onSwitch(id: string): void;
   onSend(): void;
+  claude: ClaudeStatus | null; // null = this server has no Claude integration (hide the control)
+  connecting: boolean;
+  onConnect(): void;
 }
 
-export function Header({ reviews, review, pendingCount, onSwitch, onSend }: Props) {
+export function ConnectButton({ connecting, onConnect }: { connecting: boolean; onConnect(): void }) {
+  return (
+    <button className="btn connect" disabled={connecting} onClick={onConnect}>
+      {connecting ? "Connecting…" : "Connect Claude"}
+    </button>
+  );
+}
+
+export function Header({ reviews, review, pendingCount, onSwitch, onSend, claude, connecting, onConnect }: Props) {
   const counts = review ? countBySeverity(review.findings) : null;
   return (
     <header className="header">
@@ -41,6 +52,12 @@ export function Header({ reviews, review, pendingCount, onSwitch, onSend }: Prop
           ))}
         </select>
       )}
+      {claude &&
+        (claude.connected ? (
+          <span className="claude-ok">✓ Claude connected</span>
+        ) : (
+          <ConnectButton connecting={connecting} onConnect={onConnect} />
+        ))}
       <button className="send" disabled={pendingCount === 0} onClick={onSend}>
         Send {pendingCount} to Claude ▶
       </button>

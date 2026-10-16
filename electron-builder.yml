@@ -1,0 +1,28 @@
+appId: com.reviewapp.desktop
+productName: review-app
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - skills/**/*
+  - package.json
+asarUnpack:
+  - dist/ui/**
+  - skills/**
+# Turns off the RunAsNode fuse (see the script for why).
+afterPack: scripts/after-pack.cjs
+protocols:
+  - name: review-app
+    schemes:
+      - review-app
+win:
+  target: nsis
+  icon: build/icon.png
+nsis:
+  oneClick: true
+  perMachine: false
+mac:
+  target: dmg
+  icon: build/icon.png
+  category: public.app-category.developer-tools

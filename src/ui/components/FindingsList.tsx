@@ -11,6 +11,12 @@ interface Props {
   onToggleDone(): void;
 }
 
+const STATUS_OPTIONS: [StatusFilter, string][] = [
+  ["all", "All"],
+  ["open", "Open"],
+  ["done", "Done"],
+];
+
 const STATUS_BADGE: Record<FindingStatus, string> = {
   open: "",
   fix_requested: "Fix ✓",
@@ -45,18 +51,28 @@ export function FindingsList(p: Props) {
             {SEVERITY_ICON[s]} {SEVERITY_LABEL[s]}
           </button>
         ))}
-        <select
-          aria-label="Status filter"
-          value={p.filters.status}
-          onChange={(e) => p.onFiltersChange({ ...p.filters, status: e.target.value as StatusFilter })}
-        >
-          <option value="all">All</option>
-          <option value="open">Open</option>
-          <option value="done">Done</option>
-        </select>
       </div>
 
-      {active.length === 0 && done.length === 0 && <p className="empty muted">No findings match the filters.</p>}
+      <div className="section-label">
+        <span>Findings</span>
+        <div className="segmented" role="group" aria-label="Status filter">
+          {STATUS_OPTIONS.map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={p.filters.status === value}
+              onClick={() => p.onFiltersChange({ ...p.filters, status: value })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {p.findings.length === 0 ? (
+        <p className="empty muted">No findings yet.</p>
+      ) : (
+        active.length === 0 && done.length === 0 && <p className="empty muted">No findings match the filters.</p>
+      )}
 
       <ul>
         {active.map((f) => (

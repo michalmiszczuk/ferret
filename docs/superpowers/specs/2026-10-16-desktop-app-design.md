@@ -23,7 +23,15 @@ v1 runs from a terminal (`review-app start`) and is used in a browser tab. The u
 
 ### Non-goals (this phase)
 
-Mac build, code signing / notarization, auto-update, light theme, changes to the review UI itself.
+Mac build, code signing / notarization, auto-update, light theme, changes to the review UI's behavior.
+
+### Visual refresh (added 2026-10-16)
+
+The user wants the UI to look modern, "like Figma": small font aesthetics. This is a visual-only change; behavior and markup roles stay the same.
+
+- **Palette (Figma UI3 dark):** canvas `#1e1e1e`, panels `#2c2c2c`, raised `#383838`, borders `#444444` / `#383838`, text `#e6e6e6`, muted `#a3a3a3`. Accent green `#14ae5c` for primary buttons and the selected row (selected row = green tint). Severity colors are unchanged.
+- **Type:** Inter (bundled via `@fontsource-variable/inter`, works offline), with `Segoe UI Variable`/system fallback. UI text 11–12px, small uppercase section labels (11px, semibold, letter-spaced, muted), code 12px monospace.
+- **Shape:** compact rows, 6px radius on controls, 8px on cards, 1px subtle borders, flat buttons without heavy fills except the primary action.
 
 ## 2. Architecture
 
@@ -43,7 +51,7 @@ review-app.exe (Electron)
 |---|---|
 | `src/desktop/main.ts` | Electron lifecycle: single-instance lock, start server, window, tray, protocol, notifications, login item. Glue only. |
 | `src/desktop/logic.ts` | Pure, unit-tested helpers: protocol URL from argv, "started hidden?" from argv, in-app vs external URL, notification text. No Electron imports. |
-| `src/desktop/settings.ts` | Reads/writes `~/.review-app/desktop.json` (`{ firstRunDone, openAtLogin }`). |
+| `src/desktop/settings.ts` | Reads/writes `~/.review-app/desktop.json` (`{ openAtLogin }`, default `false`). |
 | `src/server/*`, `src/ui/*`, `src/cli/setup.ts` | Reused as they are. `installSkills` / `registerMcp` are called from the tray. |
 
 - The data directory is shared with the CLI: `~/.review-app/` (reviews + `desktop.json`).
@@ -64,7 +72,7 @@ review-app.exe (Electron)
 | Port 4477 busy at startup | Error dialog: "Port 4477 is in use. Is review-app already running from a terminal? Close it and start the app again." Then quit. |
 | Server fails to start for another reason | Error dialog with the message, then quit. |
 
-**Start with Windows.** On the first run, `openAtLogin` is turned **on** (`app.setLoginItemSettings({ openAtLogin: true, args: ["--hidden"] })`) and `firstRunDone` is recorded. The tray checkbox toggles it and the choice is persisted. This is the main way to make sure the app is running before Claude needs it.
+**Start with Windows.** **Off by default.** The tray checkbox toggles it (`app.setLoginItemSettings({ openAtLogin, args: ["--hidden"] })`), and the choice is persisted in `desktop.json`. When it is off, Claude launching the app (§4) is how the app gets started.
 
 **Security.** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, no preload script. The renderer is the same web UI as in a browser.
 
@@ -84,7 +92,7 @@ Runs `installSkills(<app skills dir>, <claude home>)` and then `registerMcp("htt
 
 `/apply-review` gets the same rule for `get_pending_actions`.
 
-**Known risk, verified in the first implementation task.** Claude Code may connect to MCP servers only when a session starts. If the app was down at that moment, the tools may be missing for the session even after launch. That is why step 3 exists and why "Start with Windows" defaults to on. The first task records the observed behavior, and the skill wording is adjusted to match.
+**Known risk, verified in the first implementation task.** Claude Code may connect to MCP servers only when a session starts. If the app was down at that moment, the tools may be missing for the session even after launch. That is why step 3 exists. Turning on "Start with Windows" avoids the problem entirely. The real behavior is checked together with the user during the manual Windows test (it needs the user's Claude Code config and a live session), and the skill wording is adjusted to match.
 
 ## 5. Packaging
 

@@ -17,6 +17,7 @@ interface Props {
 export function CodeView({ review, finding, onSelect, onUpdate, noteRef }: Props) {
   const [file, setFile] = useState<FileResponse | null>(null);
   const [tokens, setTokens] = useState<Tok[][] | null>(null);
+  const [codeBg, setCodeBg] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const targetRef = useRef<HTMLDivElement>(null);
 
@@ -36,7 +37,11 @@ export function CodeView({ review, finding, onSelect, onUpdate, noteRef }: Props
         setFile(res);
         if (res.exists) {
           highlight(res.content, finding.file)
-            .then((t) => !cancelled && setTokens(t))
+            .then((t) => {
+              if (cancelled) return;
+              setTokens(t.lines);
+              setCodeBg(t.bg);
+            })
             .catch(() => {}); // plain text fallback stays
         }
       })
@@ -105,7 +110,7 @@ export function CodeView({ review, finding, onSelect, onUpdate, noteRef }: Props
   return (
     <section className="code">
       {head}
-      <div className="code-body">
+      <div className="code-body" style={codeBg ? { background: codeBg } : undefined}>
         {!range && <div ref={targetRef}>{card("lost")}</div>}
         {lines.map((toks, i) => {
           const n = i + 1;

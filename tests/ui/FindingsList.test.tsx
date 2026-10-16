@@ -68,6 +68,21 @@ describe("FindingsList", () => {
     expect(p.onFiltersChange).toHaveBeenCalledWith({ ...all, severities: ["critical", "high", "medium"] });
   });
 
+  it("says there are no findings yet when the list is empty (not a filter problem)", () => {
+    setup({ findings: [] });
+    expect(screen.getByText("No findings yet.")).toBeTruthy();
+    expect(screen.queryByText(/No findings match/)).toBeNull();
+  });
+
+  it("switches the status filter with a segmented control (no native dropdown)", async () => {
+    const p = setup();
+    const group = screen.getByRole("group", { name: "Status filter" });
+    expect(group.querySelector("select")).toBeNull();
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(p.onFiltersChange).toHaveBeenCalledWith({ ...all, status: "open" });
+  });
+
   it("shows an empty message when nothing matches", () => {
     setup({ filters: { severities: [], status: "all" } });
     expect(screen.getByText(/No findings match/)).toBeTruthy();
