@@ -62,6 +62,7 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string): Mc
               lineEnd: a.lineEnd,
               anchor: a.exists ? a.anchor : "file-missing",
               snippet: f.snippet,
+              ...(f.steps ? { steps: f.steps } : {}),
               myNote: f.myNote,
             };
           }),

@@ -6,39 +6,48 @@ import { fetchFile } from "../api";
 import { highlight, type Tok } from "../highlight";
 import { CommentCard } from "./CommentCard";
 import { Gem } from "./Gem";
+import { StepBubble } from "./StepBubble";
 
 interface Props {
   review: Review;
   finding: Finding;
+  /** null = the finding's main location; a number = that step of the finding's path. */
+  stepIndex: number | null;
+  onStep(i: number | null): void;
   onSelect(id: string): void;
   onUpdate(findingId: string, patch: FindingPatch): void;
   onSend(findingId: string, message: string): void;
   noteRef: Ref<HTMLTextAreaElement>;
 }
 
-export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef }: Props) {
+export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdate, onSend, noteRef }: Props) {
   const [file, setFile] = useState<FileResponse | null>(null);
   const [tokens, setTokens] = useState<Tok[][] | null>(null);
   const [codeBg, setCodeBg] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const targetRef = useRef<HTMLDivElement>(null);
 
+  const steps = finding.steps ?? [];
+  const step = stepIndex !== null ? steps[stepIndex] : undefined;
+  const viewFile = step ? step.file : finding.file; // the file this view is showing
+  const anchorKey = step ? `${finding.id}#${stepIndex}` : finding.id;
+
   // New file → clear old content so tokens of one file never render over another.
   useEffect(() => {
     setFile(null);
     setTokens(null);
-  }, [review.id, finding.file]);
+  }, [review.id, viewFile]);
 
   // (Re)load whenever the review changes too, so fixes made by Claude show up.
   useEffect(() => {
     let cancelled = false;
     setError(null);
-    fetchFile(review.id, finding.file)
+    fetchFile(review.id, viewFile)
       .then((res) => {
         if (cancelled) return;
         setFile(res);
         if (res.exists) {
-          highlight(res.content, finding.file)
+          highlight(res.content, viewFile)
             .then((t) => {
               if (cancelled) return;
               setTokens(t.lines);
@@ -51,33 +60,46 @@ export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef 
     return () => {
       cancelled = true;
     };
-  }, [review, finding.file]);
+  }, [review, viewFile]);
 
-  const anchor: Anchor | undefined = file?.exists ? file.anchors[finding.id] : undefined;
+  const anchor: Anchor | undefined = file?.exists ? file.anchors[anchorKey] : undefined;
 
   useEffect(() => {
     targetRef.current?.scrollIntoView({ block: "center" });
-  }, [finding.id, anchor?.lineStart, file?.exists]);
+  }, [finding.id, stepIndex, anchor?.lineStart, file?.exists]);
 
-  const href = vscodeUrl(review.repoRoot, finding.file, anchor?.lineStart ?? finding.lineStart);
+  const href = vscodeUrl(review.repoRoot, viewFile, anchor?.lineStart ?? step?.lineStart ?? finding.lineStart);
   const head = (
     <div className="code-head">
-      <span className="path">{finding.file}</span>
+      <span className="path">
+        {step && <span className="step-tag">Step {stepIndex! + 1}/{steps.length}</span>}
+        {viewFile}
+      </span>
       <a className="btn" href={href}>
         Open in VS Code
       </a>
     </div>
   );
-  const card = (state: Anchor["anchor"] | "missing") => (
-    <CommentCard
-      key={finding.id}
-      finding={finding}
-      anchor={state}
-      onUpdate={(p) => onUpdate(finding.id, p)}
-      onSend={(m) => onSend(finding.id, m)}
-      noteRef={noteRef}
-    />
-  );
+  const card = (state: Anchor["anchor"] | "missing") =>
+    step ? (
+      <StepBubble
+        key={anchorKey}
+        finding={finding}
+        index={stepIndex!}
+        lost={state === "lost" || state === "missing"}
+        onStep={onStep}
+      />
+    ) : (
+      <CommentCard
+        key={finding.id}
+        finding={finding}
+        anchor={state}
+        onUpdate={(p) => onUpdate(finding.id, p)}
+        onSend={(m) => onSend(finding.id, m)}
+        onStep={onStep}
+        noteRef={noteRef}
+      />
+    );
 
   if (error) {
     return (
@@ -111,9 +133,16 @@ export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef 
   const dotsByLine = new Map<number, Finding[]>();
   for (const f of review.findings) {
     const a = file.anchors[f.id];
-    if (f.file !== finding.file || !a || a.anchor === "lost") continue;
+    if (f.file !== viewFile || !a || a.anchor === "lost") continue;
     dotsByLine.set(a.lineStart, [...(dotsByLine.get(a.lineStart) ?? []), f]);
   }
+  // Numbers for this finding's path steps that live in the shown file.
+  const stepsByLine = new Map<number, number[]>();
+  steps.forEach((s, i) => {
+    const a = file.anchors[`${finding.id}#${i}`];
+    if (s.file !== viewFile || !a || a.anchor === "lost") return;
+    stepsByLine.set(a.lineStart, [...(stepsByLine.get(a.lineStart) ?? []), i]);
+  });
   const range = anchor && anchor.anchor !== "lost" ? anchor : null;
 
   return (
@@ -132,16 +161,27 @@ export function CodeView({ review, finding, onSelect, onUpdate, onSend, noteRef 
               >
                 <span className={`chg${changed.has(n) ? " on" : ""}`} />
                 <span className="dots">
-                  {(dotsByLine.get(n) ?? []).map((d) => (
+                  {(stepsByLine.get(n) ?? []).map((si) => (
                     <button
-                      key={d.id}
-                      className={`dot sev-${d.severity}`}
-                      title={d.title}
-                      aria-label={`Finding: ${d.title}`}
-                      onClick={() => onSelect(d.id)}
+                      key={`s${si}`}
+                      className={`step-mark sev-${finding.severity}${si === stepIndex ? " on" : ""}`}
+                      title={steps[si].note}
+                      aria-label={`Step ${si + 1}: ${steps[si].note}`}
+                      onClick={() => onStep(si)}
                     >
-                      <Gem severity={d.severity} size={11} />
+                      {si + 1}
                     </button>
+                  ))}
+                  {(dotsByLine.get(n) ?? []).map((d) => (
+                      <button
+                        key={d.id}
+                        className={`dot sev-${d.severity}`}
+                        title={d.title}
+                        aria-label={`Finding: ${d.title}`}
+                        onClick={() => onSelect(d.id)}
+                      >
+                        <Gem severity={d.severity} size={11} />
+                      </button>
                   ))}
                 </span>
                 <span className="ln">{n}</span>

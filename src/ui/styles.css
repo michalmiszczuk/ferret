@@ -277,6 +277,40 @@ textarea::placeholder { color: var(--faint); }
 .get-started li .btn { margin-right: 8px; }
 .get-started code { color: var(--text); background: var(--raised); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
 
+/* Multi-place findings: the path ① ② ③ */
+.trail { margin-top: 10px; }
+.trail ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
+.trail-step {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
+  padding: 5px 8px; background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--text); cursor: pointer; font: inherit;
+}
+.trail-step:hover { background: var(--raised); }
+.trail-step.on { border-color: color-mix(in srgb, var(--sev) 60%, transparent); background: color-mix(in srgb, var(--sev) 12%, transparent); }
+.trail-text { display: flex; flex-direction: column; min-width: 0; }
+.trail-note { line-height: 1.4; }
+.trail-loc { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.step-badge {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+  background: var(--sev); color: #111; font-size: 11px; font-weight: 700;
+}
+.step-card .card-head { display: flex; align-items: center; gap: 8px; }
+.step-note { margin: 8px 0 4px; font-size: 13px; }
+.step-tag {
+  margin-right: 8px; padding: 1px 6px; border-radius: 4px;
+  background: var(--raised); color: var(--text); font-family: var(--sans); font-size: 11px;
+}
+.step-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  background: color-mix(in srgb, var(--sev) 55%, transparent); color: #111; font-size: 10px; font-weight: 700;
+}
+.step-mark.on, .step-mark:hover { background: var(--sev); }
+.btn.quiet-back { border-color: transparent; color: var(--muted); }
+.keys { margin-left: auto; font-size: 11px; }
+
+.toast-action { margin-left: 12px; height: 24px; border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .toast {
   position: fixed;
   bottom: 20px;

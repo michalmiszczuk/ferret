@@ -34,6 +34,7 @@ Bugs, security problems, performance issues, and maintainability problems. Only 
 - `file`: repo-relative, forward slashes.
 - `lineStart`/`lineEnd`: 1-based line numbers in the file **as it is now on disk**.
 - `snippet`: the exact text of lines `lineStart..lineEnd`, copied from the file without line-number prefixes. This is used to re-find the lines if the file changes, so it must match.
+- `steps` (optional): **only when the problem really spans several places** (data flowing from where it enters to where it does damage, a caller and the callee it misuses, config and its usage). An ordered list of 2–10 points, each with `file`, `lineStart`, `lineEnd`, `snippet` (same rules as above) and a one-line `note` saying what happens there (e.g. "text comes from the third-party node definition", "passed through unchanged", "rendered as HTML: this is where it bites"). Include the finding's main location as one of the steps. Leave `steps` out for single-place findings.
 
 ## 5. Submit
 

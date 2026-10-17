@@ -12,7 +12,7 @@ The arguments are: an optional review id (`r_…`), optional finding ids (`f1 f2
 3. If `actions` is empty, tell the user there is nothing sent from review-app and stop.
 4. For each action, in the order given:
    - The user's instruction is the **message** typed after the ids, or else the action's `myNote`. **It overrides everything else.** No message means: fix the problem described in `body`.
-   - Open `file` around `lineStart..lineEnd` (paths are relative to `repoRoot`).
+   - Open `file` around `lineStart..lineEnd` (paths are relative to `repoRoot`). If the action has `steps`, the problem spans several places: each step is `{file, lineStart, lineEnd, snippet, note}` on the path from where it starts to where it bites; read them all before changing anything.
      - `anchor: "lost"`: the code moved or changed. Locate it from `snippet` and the description. If you cannot find it, skip it.
      - `anchor: "file-missing"`: skip it.
    - Do what the user asked:

@@ -18,6 +18,18 @@ export const scopeSchema = z.discriminatedUnion("kind", [
 ]);
 export type Scope = z.infer<typeof scopeSchema>;
 
+/** One point on a finding's path (where the problem starts, flows through, bites). */
+export const stepSchema = z
+  .object({
+    file: z.string().min(1).describe("Repo-relative path with forward slashes"),
+    lineStart: z.number().int().min(1),
+    lineEnd: z.number().int().min(1),
+    snippet: z.string().min(1).describe("Exact code of lines lineStart..lineEnd"),
+    note: z.string().min(1).max(300).describe("One line: what happens at this point"),
+  })
+  .refine((s) => s.lineEnd >= s.lineStart, { message: "lineEnd must be >= lineStart", path: ["lineEnd"] });
+export type Step = z.infer<typeof stepSchema>;
+
 export const findingInputSchema = z
   .object({
     severity: severitySchema.describe("critical | high | medium | low — see the severity rules in the ai-review skill"),
@@ -29,6 +41,12 @@ export const findingInputSchema = z
     lineStart: z.number().int().min(1).describe("1-based, inclusive"),
     lineEnd: z.number().int().min(1).describe("1-based, inclusive, >= lineStart"),
     snippet: z.string().min(1).describe("Exact code of lines lineStart..lineEnd, copied from the file"),
+    steps: z
+      .array(stepSchema)
+      .min(2)
+      .max(10)
+      .optional()
+      .describe("Only when the problem spans several places: the ordered path (e.g. input enters → passes through → bites)"),
   })
   .refine((f) => f.lineEnd >= f.lineStart, { message: "lineEnd must be >= lineStart", path: ["lineEnd"] });
 export type FindingInput = z.infer<typeof findingInputSchema>;
@@ -62,6 +80,9 @@ export const findingSchema = z.object({
   lineStart: z.number().int(),
   lineEnd: z.number().int(),
   snippet: z.string(),
+  steps: z
+    .array(z.object({ file: z.string(), lineStart: z.number().int(), lineEnd: z.number().int(), snippet: z.string(), note: z.string() }))
+    .optional(),
   status: statusSchema,
   myNote: z.string().optional(),
   resolution: z.string().optional(),

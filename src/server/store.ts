@@ -57,6 +57,7 @@ export class ReviewStore extends EventEmitter {
     const findings: Finding[] = input.findings.map((f, i) => ({
       ...f,
       file: normalizeFindingPath(f.file, input.repoRoot),
+      ...(f.steps ? { steps: f.steps.map((s) => ({ ...s, file: normalizeFindingPath(s.file, input.repoRoot) })) } : {}),
       id: `f${i + 1}`,
       originalSeverity: f.severity,
       status: "open",

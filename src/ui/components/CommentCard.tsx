@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import type { Anchor } from "../../shared/api-types";
 import { SEVERITY_LABEL } from "../../shared/findings";
 import { Gem } from "./Gem";
+import { PathSteps } from "./PathSteps";
 import { SEVERITIES, type Finding, type FindingPatch, type Severity } from "../../shared/schema";
 
 interface Props {
@@ -11,10 +12,12 @@ interface Props {
   onUpdate(patch: FindingPatch): void;
   /** Send this finding to Claude with the user's message (empty = "just fix it"). */
   onSend(message: string): void;
+  /** Jump to a step of the finding's path (multi-place findings only). */
+  onStep?(i: number): void;
   noteRef?: Ref<HTMLTextAreaElement>;
 }
 
-export function CommentCard({ finding: f, anchor, onUpdate, onSend, noteRef }: Props) {
+export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, noteRef }: Props) {
   const [note, setNote] = useState(f.myNote ?? "");
   useEffect(() => setNote(f.myNote ?? ""), [f.id, f.myNote]);
 
@@ -43,6 +46,8 @@ export function CommentCard({ finding: f, anchor, onUpdate, onSend, noteRef }: P
       <div className="md">
         <Markdown>{f.body}</Markdown>
       </div>
+
+      {onStep && <PathSteps finding={f} active={null} onStep={onStep} />}
 
       {f.suggestion && (
         <div className="suggestion">

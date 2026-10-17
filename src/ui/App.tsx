@@ -20,17 +20,26 @@ export function App() {
   const [reviews, setReviews] = useState<ReviewSummary[]>([]);
   const [reviewId, setReviewId] = useState<string | null>(idFromUrl());
   const [review, setReview] = useState<Review | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedIdRaw] = useState<string | null>(null);
+  // Which step of the selected finding's path is shown (null = the finding itself).
+  const [stepIndex, setStepIndex] = useState<number | null>(null);
+  // Selecting a finding always starts at its main location (same render, so no flash of a stale step).
+  const setSelectedId = useCallback((id: string | null) => {
+    setSelectedIdRaw(id);
+    setStepIndex(null);
+  }, []);
   const [filters, setFilters] = useState<Filters>({ severities: [...SEVERITIES], status: "all" });
   const [doneOpen, setDoneOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; action?: { label: string; run(): void } } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const reviewIdRef = useRef(reviewId);
   reviewIdRef.current = reviewId;
 
-  const showToast = useCallback((msg: string, ms = 3000) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), ms);
+  const showToast = useCallback((msg: string, ms = 3000, action?: { label: string; run(): void }) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, action });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   }, []);
 
   // Claude Code connection (skills + MCP). null = this server can't do it (e.g. plain `review-app start`).
@@ -99,8 +108,21 @@ export function App() {
         }
         void loadReviews();
         if (e.type === "review-created") {
-          setSelectedId(null);
-          setReviewId(e.reviewId);
+          // Jump to the new review only when nothing is open; otherwise offer it, so a message the user is
+          // typing on a finding isn't thrown away by the switch.
+          if (!reviewIdRef.current) {
+            setSelectedId(null);
+            setReviewId(e.reviewId);
+          } else {
+            showToast("New review arrived.", 15000, {
+              label: "Open it",
+              run: () => {
+                setSelectedId(null);
+                setReviewId(e.reviewId);
+                setToast(null);
+              },
+            });
+          }
         } else if (e.reviewId === reviewIdRef.current) {
           fetchReview(e.reviewId)
             .then((r) => {
@@ -109,15 +131,18 @@ export function App() {
             .catch(() => {});
         }
       }),
-    [loadReviews, leaveReview],
+    [loadReviews, leaveReview, showToast, setSelectedId],
   );
 
+  // The SSE "review-deleted" handler normally moves the view on before the HTTP response arrives;
+  // the checks below only act if it hasn't (e.g. the event stream is reconnecting).
   const onDelete = useCallback(async () => {
     if (!review) return;
     if (!confirm(`Delete this review (${review.findings.length} findings)? This can't be undone.`)) return;
+    const id = review.id;
     try {
-      await deleteReview(review.id);
-      leaveReview();
+      await deleteReview(id);
+      if (reviewIdRef.current === id) leaveReview();
       await loadReviews();
     } catch (err) {
       showToast(`Delete failed: ${(err as Error).message}`);
@@ -128,7 +153,7 @@ export function App() {
     if (!confirm(`Delete all ${reviews.length} reviews? This can't be undone.`)) return;
     try {
       await clearReviews();
-      leaveReview();
+      if (reviewIdRef.current) leaveReview();
       await loadReviews();
     } catch (err) {
       showToast(`Clear failed: ${(err as Error).message}`);
@@ -148,15 +173,18 @@ export function App() {
     if (review && review.id === reviewId && !selected && nav.length > 0) setSelectedId(nav[0].id);
   }, [review, reviewId, selected, nav]);
 
+  /** Patches a finding on the server. Returns false (after a toast) when the save failed. */
   const update = useCallback(
-    async (findingId: string, patch: FindingPatch) => {
-      if (!review) return;
+    async (findingId: string, patch: FindingPatch): Promise<boolean> => {
+      if (!review) return false;
       const id = review.id;
       try {
         const updated = await patchFinding(id, findingId, patch);
         setReview((r) => (r && r.id === id ? { ...r, findings: r.findings.map((f) => (f.id === findingId ? updated : f)) } : r));
+        return true;
       } catch (err) {
-        showToast(`Update failed: ${(err as Error).message}`);
+        showToast(`Update failed: ${(err as Error).message}`, 6000);
+        return false;
       }
     },
     [review, showToast],
@@ -176,10 +204,10 @@ export function App() {
       } catch {
         copied = false;
       }
-      await update(findingId, { myNote: message, status: "fix_requested" });
+      if (!(await update(findingId, { myNote: message, status: "fix_requested" }))) return; // nothing to send
       // 1) Focus the VS Code window of the Claude session's folder, 2) open the Claude panel there with the
       // prompt pre-filled (the user presses Enter). The clipboard copy is the fallback if VS Code doesn't come up.
-      const folder = realValue(review.projectDir);
+      const folder = realValue(review.projectDir) ?? review.repoRoot; // the repo is usually the workspace too
       const urls = [
         ...(folder && realValue(review.sessionId) ? [vscodeFolderUrl(folder)] : []),
         claudeOpenUrl(text, review.sessionId),
@@ -211,7 +239,11 @@ export function App() {
       const idx = nav.findIndex((f) => f.id === selectedId);
       if (e.key === "j") setSelectedId(nav[Math.min(idx + 1, nav.length - 1)].id);
       else if (e.key === "k") setSelectedId(nav[Math.max(idx - 1, 0)].id);
-      else if (e.key === "n") {
+      else if ((e.key === "]" || e.key === "[") && selected?.steps?.length) {
+        const last = selected.steps.length - 1;
+        if (e.key === "]") setStepIndex((s) => (s === null ? 0 : Math.min(s + 1, last)));
+        else setStepIndex((s) => (s === null || s === 0 ? null : s - 1));
+      } else if (e.key === "n") {
         e.preventDefault();
         noteRef.current?.focus();
       } else if (selected && (selected.status === "open" || selected.status === "fix_requested")) {
@@ -286,6 +318,8 @@ export function App() {
             <CodeView
               review={review}
               finding={selected}
+              stepIndex={stepIndex}
+              onStep={setStepIndex}
               onSelect={setSelectedId}
               onUpdate={update}
               onSend={sendFinding}
@@ -298,7 +332,12 @@ export function App() {
       )}
       {toast && (
         <div className="toast" role="status">
-          {toast}
+          {toast.msg}
+          {toast.action && (
+            <button className="btn toast-action" onClick={toast.action.run}>
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
     </div>

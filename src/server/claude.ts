@@ -29,7 +29,10 @@ async function exists(p: string): Promise<boolean> {
 
 export function createClaudeIntegration(opts: ClaudeIntegrationOptions): ClaudeIntegration {
   const claudeHome = opts.claudeHome ?? process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
-  const claudeJsonPath = opts.claudeJsonPath ?? path.join(os.homedir(), ".claude.json");
+  // Claude Code keeps .claude.json next to the config dir when CLAUDE_CONFIG_DIR is set, else in the home dir.
+  const claudeJsonPath =
+    opts.claudeJsonPath ??
+    (process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, ".claude.json") : path.join(os.homedir(), ".claude.json"));
   const register = opts.register ?? registerMcp;
 
   async function mcpRegistered(): Promise<boolean> {

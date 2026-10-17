@@ -26,8 +26,10 @@ export function createApiRouter(
       wrap(async (req, res) => {
         if (!req.is("application/json")) return res.status(415).json({ error: "Expected application/json" });
         const urls = (req.body as { urls?: unknown }).urls;
-        if (!Array.isArray(urls) || urls.length === 0 || urls.length > 3 || !urls.every((u) => typeof u === "string" && u.startsWith("vscode://"))) {
-          return res.status(400).json({ error: "urls must be 1-3 vscode:// links" });
+        // Only the two link shapes the UI builds: open a folder/file, or open the Claude panel.
+        const allowed = /^vscode:\/\/(file\/|anthropic\.claude-code\/open(\?|$))/;
+        if (!Array.isArray(urls) || urls.length === 0 || urls.length > 3 || !urls.every((u) => typeof u === "string" && allowed.test(u))) {
+          return res.status(400).json({ error: "urls must be 1-3 vscode://file/… or vscode://anthropic.claude-code/open links" });
         }
         for (let i = 0; i < urls.length; i++) {
           await openExternal(urls[i]);
@@ -143,9 +145,14 @@ export function createApiRouter(
       try {
         const file = await readRepoFile(review.repoRoot, rel);
         if (!file.exists) return res.json({ exists: false } satisfies FileResponse);
-        const anchors = Object.fromEntries(
-          review.findings.filter((f) => f.file === rel).map((f) => [f.id, reanchor(file.content, f)]),
-        );
+        // Findings anchor under their id; path steps under "<findingId>#<stepIndex>".
+        const anchors: Record<string, ReturnType<typeof reanchor>> = {};
+        for (const f of review.findings) {
+          if (f.file === rel) anchors[f.id] = reanchor(file.content, f);
+          f.steps?.forEach((s, i) => {
+            if (s.file === rel) anchors[`${f.id}#${i}`] = reanchor(file.content, s);
+          });
+        }
         const body: FileResponse = {
           exists: true,
           content: file.content,
