@@ -28,71 +28,96 @@ export function JobCard({ job, queuedAhead, onCancel, onOpenReview, onDismiss }:
     return () => clearInterval(t);
   }, [live]);
 
-  return (
-    <div className={`job job-${job.status}`} data-testid="job-card">
-      <div className="job-head">
-        {live && <span className="spinner" aria-hidden="true" />}
-        <span className="job-label">{job.label}</span>
+  // A running review has the digging ferret as its one loader; everything else keeps the small spinner.
+  const digging = job.status === "running" && job.kind === "review";
+
+  const head = (
+    <div className="job-head">
+      {live && !digging && <span className="spinner" aria-hidden="true" />}
+      <span className="job-label">{job.label}</span>
+      {!digging && (
         <span className="muted job-time">
           {job.model ? `${modelLabel(job.model)} · ` : ""}
           {elapsed(job.startedAt ?? job.createdAt, job.endedAt)}
         </span>
-        {live ? (
-          <button className="btn quiet" onClick={() => onCancel(job.id)}>
-            Cancel
-          </button>
-        ) : (
-          <button className="btn quiet" aria-label="Dismiss" onClick={() => onDismiss(job.id)}>
-            ✕
-          </button>
-        )}
-      </div>
-      <div className="job-body">
-        {job.status === "queued" && <span className="muted">Queued{queuedAhead > 0 ? `, ${queuedAhead} ahead` : ""}</span>}
-        {job.status === "running" && (
-          <div className={`job-live${job.kind === "review" ? " with-digger" : ""}`}>
-            {job.kind === "review" && <FerretDigger size={42} />}
-            <div className="job-phase">
-              <span>{job.phase ?? "Working"}…</span>
-              {job.stats && (job.stats.tools > 0 || job.stats.files > 0) && (
-                <span className="muted job-stats">
-                  {job.stats.files} file{job.stats.files === 1 ? "" : "s"} read · {job.stats.tools} step{job.stats.tools === 1 ? "" : "s"}
-                </span>
-              )}
-            </div>
-            <div className="job-bar" aria-hidden="true" />
-            <ol className="job-feed" aria-label="Activity">
-              {(job.activity?.length ? job.activity : job.progress ? [job.progress] : []).map((line, i, all) => (
-                <li key={`${i}-${line}`} className={i === all.length - 1 ? "now" : undefined}>
-                  {line}
-                </li>
-              ))}
-            </ol>
+      )}
+      {live ? (
+        <button className="btn quiet" onClick={() => onCancel(job.id)}>
+          Cancel
+        </button>
+      ) : (
+        <button className="btn quiet" aria-label="Dismiss" onClick={() => onDismiss(job.id)}>
+          ✕
+        </button>
+      )}
+    </div>
+  );
+
+  const body = (
+    <div className="job-body">
+      {job.status === "queued" && <span className="muted">Queued{queuedAhead > 0 ? `, ${queuedAhead} ahead` : ""}</span>}
+      {job.status === "running" && (
+        <div className="job-live">
+          <div className="job-phase">
+            <span>{job.phase ?? "Working"}…</span>
+            <span className="muted job-stats">
+              {digging ? `${job.model ? `${modelLabel(job.model)} · ` : ""}${elapsed(job.startedAt ?? job.createdAt)}` : ""}
+              {job.stats && (job.stats.tools > 0 || job.stats.files > 0)
+                ? `${digging ? " · " : ""}${job.stats.files} file${job.stats.files === 1 ? "" : "s"} · ${job.stats.tools} step${job.stats.tools === 1 ? "" : "s"}`
+                : ""}
+            </span>
           </div>
-        )}
-        {job.status === "done" && (
-          <span>
-            Done{job.note ? ` — ${job.note}` : ""}
-            {job.reviewId && (
-              <button className="btn link" onClick={() => onOpenReview(job.reviewId!)}>
-                Open
-              </button>
-            )}
-          </span>
-        )}
-        {job.status === "cancelled" && <span className="muted">Cancelled{job.error ? ` — ${job.error}` : ""}</span>}
-        {job.status === "failed" && (
-          <div>
-            <span className="warn">{job.error ?? "Failed"}</span>
-            {job.logTail.length > 0 && (
-              <details className="job-log">
-                <summary>Show log</summary>
-                <pre>{job.logTail.join("\n")}</pre>
-              </details>
-            )}
+          <div className="job-bar" aria-hidden="true" />
+          <ol className="job-feed" aria-label="Activity">
+            {(job.activity?.length ? job.activity : job.progress ? [job.progress] : []).map((line, i, all) => (
+              <li key={`${i}-${line}`} className={i === all.length - 1 ? "now" : undefined}>
+                {line}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {job.status === "done" && (
+        <span>
+          Done{job.note ? ` — ${job.note}` : ""}
+          {job.reviewId && (
+            <button className="btn link" onClick={() => onOpenReview(job.reviewId!)}>
+              Open
+            </button>
+          )}
+        </span>
+      )}
+      {job.status === "cancelled" && <span className="muted">Cancelled{job.error ? ` — ${job.error}` : ""}</span>}
+      {job.status === "failed" && (
+        <div>
+          <span className="warn">{job.error ?? "Failed"}</span>
+          {job.logTail.length > 0 && (
+            <details className="job-log">
+              <summary>Show log</summary>
+              <pre>{job.logTail.join("\n")}</pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className={`job job-${job.status}`} data-testid="job-card">
+      {digging ? (
+        <div className="job-digging">
+          <FerretDigger size={46} />
+          <div className="job-main">
+            {head}
+            {body}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <>
+          {head}
+          {body}
+        </>
+      )}
     </div>
   );
 }
