@@ -14,7 +14,18 @@ const api = vi.hoisted(() => ({
   fetchFile: vi.fn(),
   subscribe: vi.fn(),
   fetchClaudeStatus: vi.fn(),
+  fetchLatestSession: vi.fn(async () => null),
   connectClaude: vi.fn(),
+  fetchJobs: vi.fn(async () => []),
+  cancelJob: vi.fn(),
+  fetchEnv: vi.fn(async () => ({ gh: { installed: true, loggedIn: true }, claude: { installed: true }, git: { installed: true } })),
+  fetchRepos: vi.fn(async () => ({ repos: [] })),
+  fetchRepoInfo: vi.fn(),
+  fetchPrs: vi.fn(async () => []),
+  fetchCommits: vi.fn(async () => []),
+  startJob: vi.fn(),
+  pickFolder: vi.fn(),
+  NeedsRepo: class NeedsRepo extends Error {},
 }));
 vi.mock("../../src/ui/api", () => api);
 vi.mock("../../src/ui/components/CodeView", () => ({
@@ -36,7 +47,7 @@ const reviewB: Review = {
 };
 const summary = (r: Review): ReviewSummary => ({
   id: r.id, createdAt: r.createdAt, repoName: "repo", scope: r.scope,
-  counts: { critical: 1, high: 0, medium: 0, low: 1 }, pending: 0, total: 2,
+  counts: { critical: 1, high: 0, medium: 0, low: 1 }, pending: 0, total: 2, label: "repo · uncommitted changes",
 });
 
 function deferred<T>() {

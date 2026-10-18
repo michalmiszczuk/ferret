@@ -14,12 +14,34 @@ interface Props {
   onSend(message: string): void;
   /** Jump to a step of the finding's path (multi-place findings only). */
   onStep?(i: number): void;
+  /** Ask Claude to draft a reply for the author (headless). Absent = this build can't. */
+  onDraft?(): void;
+  drafting?: boolean;
+  /** Shown when the review's code is a snapshot (PR / older commit). */
+  snapshotHint?: string;
+  /** Replaces the message box text when it changes (e.g. "Ask about this step"). */
+  presetMessage?: { text: string; n: number };
   noteRef?: Ref<HTMLTextAreaElement>;
 }
 
-export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, noteRef }: Props) {
+export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, onDraft, drafting, snapshotHint, presetMessage, noteRef }: Props) {
   const [note, setNote] = useState(f.myNote ?? "");
   useEffect(() => setNote(f.myNote ?? ""), [f.id, f.myNote]);
+  useEffect(() => {
+    if (presetMessage) setNote(presetMessage.text);
+  }, [presetMessage]);
+  const [draft, setDraft] = useState(f.draft ?? "");
+  useEffect(() => setDraft(f.draft ?? ""), [f.id, f.draft]);
+  const [copied, setCopied] = useState(false);
+  const copyDraft = async () => {
+    try {
+      await navigator.clipboard.writeText(draft);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // the textarea is selectable; nothing else to do
+    }
+  };
 
   const actionable = f.status === "open" || f.status === "fix_requested";
   const resettable = f.status === "fixing" || f.status === "skipped" || f.status === "dismissed";
@@ -64,6 +86,41 @@ export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, note
           <p>{f.resolution}</p>
         </div>
       )}
+
+      {(onDraft || f.draft) && (
+        <div className="draft">
+          <div className="label-row">
+            <label className="label" htmlFor={`draft-${f.id}`}>
+              Reply to author
+            </label>
+            {onDraft && (
+              <button className="btn small-btn" disabled={drafting} onClick={onDraft}>
+                {drafting ? "Drafting…" : f.draft ? "Regenerate" : "Draft reply"}
+              </button>
+            )}
+            {f.draft && (
+              <button className="btn small-btn" onClick={copyDraft}>
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            )}
+          </div>
+          {f.draft ? (
+            <textarea
+              id={`draft-${f.id}`}
+              rows={4}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => {
+                if (draft !== (f.draft ?? "")) onUpdate({ draft });
+              }}
+            />
+          ) : (
+            <p className="muted small">Let Claude write a short comment you can paste to the PR author.</p>
+          )}
+        </div>
+      )}
+
+      {snapshotHint && <p className="snapshot-hint muted small">{snapshotHint}</p>}
 
       <label className="label" htmlFor={noteId}>
         Message to Claude

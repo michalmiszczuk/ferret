@@ -17,10 +17,15 @@ interface Props {
   onSelect(id: string): void;
   onUpdate(findingId: string, patch: FindingPatch): void;
   onSend(findingId: string, message: string): void;
+  onDraft?(findingId: string): void;
+  drafting?: boolean;
+  snapshotHint?: string;
+  presetMessage?: { text: string; n: number };
+  onAsk?(i: number): void;
   noteRef: Ref<HTMLTextAreaElement>;
 }
 
-export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdate, onSend, noteRef }: Props) {
+export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdate, onSend, onDraft, drafting, snapshotHint, presetMessage, onAsk, noteRef }: Props) {
   const [file, setFile] = useState<FileResponse | null>(null);
   const [tokens, setTokens] = useState<Tok[][] | null>(null);
   const [codeBg, setCodeBg] = useState<string | undefined>(undefined);
@@ -88,6 +93,7 @@ export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdat
         index={stepIndex!}
         lost={state === "lost" || state === "missing"}
         onStep={onStep}
+        onAsk={onAsk}
       />
     ) : (
       <CommentCard
@@ -97,6 +103,10 @@ export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdat
         onUpdate={(p) => onUpdate(finding.id, p)}
         onSend={(m) => onSend(finding.id, m)}
         onStep={onStep}
+        onDraft={onDraft ? () => onDraft(finding.id) : undefined}
+        drafting={drafting}
+        snapshotHint={snapshotHint}
+        presetMessage={presetMessage}
         noteRef={noteRef}
       />
     );

@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClaudeStatus, ReviewSummary } from "../shared/api-types";
+import type { ClaudeStatus, Job, ReviewSummary } from "../shared/api-types";
 import { claudeOpenUrl, realValue, vscodeFolderUrl } from "../shared/claude-link";
 import { navOrder, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
 import {
-  clearReviews, connectClaude, deleteReview, fetchClaudeStatus, fetchReview, fetchReviews, openInVsCode, patchFinding,
-  subscribe,
+  cancelJob, clearReviews, connectClaude, deleteReview, fetchClaudeStatus, fetchExport, fetchJobs, fetchLatestSession, fetchReview, fetchReviews,
+  importReview, NeedsRepo, openInVsCode, patchFinding, saveFile, startDraft, startDraftAll, subscribe,
 } from "./api";
+import { sourceLabel } from "../shared/git-parse";
 import { CodeView } from "./components/CodeView";
 import { FindingsList } from "./components/FindingsList";
 import { ConnectButton, Header } from "./components/Header";
+import { JobCard } from "./components/JobCard";
+import { ReviewPanel } from "./components/ReviewPanel";
 
 function idFromUrl(): string | null {
   const m = location.pathname.match(/^\/r\/([\w-]+)/);
@@ -41,6 +44,16 @@ export function App() {
     setToast({ msg, action });
     toastTimer.current = setTimeout(() => setToast(null), ms);
   }, []);
+
+  // Background jobs (reviews started from Ferret, reply drafts). Finished ones can be dismissed from the list.
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set());
+  const openedAt = useRef(Date.now());
+  const [panelOpen, setPanelOpen] = useState(() => new URLSearchParams(location.search).get("panel") === "review");
+  const loadJobs = useCallback(() => fetchJobs().then(setJobs).catch(() => {}), []);
+  useEffect(() => {
+    void loadJobs();
+  }, [loadJobs]);
 
   // Claude Code connection (skills + MCP). null = this server can't do it (e.g. plain `review-app start`).
   const [claude, setClaude] = useState<ClaudeStatus | null>(null);
@@ -101,6 +114,23 @@ export function App() {
   useEffect(
     () =>
       subscribe((e) => {
+        if (e.type === "job-updated") {
+          // A finished review job opens its review when nothing is open; otherwise the review-created toast offers it.
+          fetchJobs()
+            .then((list) => {
+              setJobs(list);
+              const j = list.find((x) => x.id === e.jobId);
+              if (j?.status === "done" && j.kind === "review" && j.reviewId && !reviewIdRef.current) {
+                setSelectedId(null);
+                setReviewId(j.reviewId);
+              }
+              if (j?.kind !== "review" && j?.reviewId === reviewIdRef.current && (j?.status === "done" || j?.status === "failed")) {
+                fetchReview(j.reviewId!).then((r) => reviewIdRef.current === r.id && setReview(r)).catch(() => {});
+              }
+            })
+            .catch(() => {});
+          return;
+        }
         if (e.type === "review-deleted") {
           if (e.reviewId === reviewIdRef.current) leaveReview();
           void loadReviews();
@@ -205,12 +235,22 @@ export function App() {
         copied = false;
       }
       if (!(await update(findingId, { myNote: message, status: "fix_requested" }))) return; // nothing to send
-      // 1) Focus the VS Code window of the Claude session's folder, 2) open the Claude panel there with the
-      // prompt pre-filled (the user presses Enter). The clipboard copy is the fallback if VS Code doesn't come up.
-      const folder = realValue(review.projectDir) ?? review.repoRoot; // the repo is usually the workspace too
+      // 1) Open/focus the VS Code window of the repo, 2) open the Claude chat there with the prompt pre-filled
+      // (the user presses Enter). The clipboard copy is the fallback if VS Code doesn't come up.
+      // Fixes always go into the user's clone (source.repo), never into a Ferret snapshot. A review that came
+      // from a chat returns to that chat; otherwise Ferret picks the chat most recently used in that repo.
+      const folder = review.source?.repo ?? realValue(review.projectDir) ?? review.repoRoot;
+      let sessionId = realValue(review.sessionId);
+      if (!sessionId && folder) {
+        try {
+          sessionId = (await fetchLatestSession(folder))?.sessionId;
+        } catch {
+          // no lookup on an older server: a new chat opens instead
+        }
+      }
       const urls = [
-        ...(folder && realValue(review.sessionId) ? [vscodeFolderUrl(folder)] : []),
-        claudeOpenUrl(text, review.sessionId),
+        ...(folder && (review.source || sessionId) ? [vscodeFolderUrl(folder)] : []),
+        claudeOpenUrl(text, sessionId),
       ];
       try {
         await openInVsCode(urls); // the app opens them: no browser click-timing limits
@@ -254,26 +294,187 @@ export function App() {
     return () => removeEventListener("keydown", onKey);
   }, [nav, selectedId, selected, update]);
 
+  const openReview = useCallback(
+    (id: string) => {
+      setSelectedId(null);
+      setReviewId(id);
+    },
+    [setSelectedId],
+  );
+  // ---- reply drafts ----
+  const liveJob = (j: Job) => j.status === "running" || j.status === "queued";
+  const draftingAll = jobs.some((j) => j.kind === "draft-all" && j.reviewId === reviewId && liveJob(j));
+  const draftingId = (id: string) => draftingAll || jobs.some((j) => j.kind === "draft" && j.reviewId === reviewId && j.findingId === id && liveJob(j));
+  const onDraft = useCallback(
+    (findingId: string) => {
+      if (!review) return;
+      startDraft(review.id, findingId)
+        .then(loadJobs)
+        .catch((e: Error) => showToast(`Draft failed: ${e.message}`, 6000));
+    },
+    [review, loadJobs, showToast],
+  );
+  const onDraftAll = useCallback(() => {
+    if (!review) return;
+    const open = review.findings.filter((f) => f.status === "open");
+    const redo = open.some((f) => f.draft) && confirm("Some findings already have a reply. Redo all of them? (Cancel = only the missing ones)");
+    startDraftAll(review.id, redo)
+      .then(loadJobs)
+      .catch((e: Error) => showToast(`Draft all failed: ${e.message}`, 6000));
+  }, [review, loadJobs, showToast]);
+
+  // ---- "Ask about this step" pre-fills the message box ----
+  const [presetMessage, setPresetMessage] = useState<{ text: string; n: number } | undefined>(undefined);
+  const onAsk = useCallback(
+    (i: number) => {
+      const step = selected?.steps?.[i];
+      if (!step) return;
+      setStepIndex(null);
+      setPresetMessage((p) => ({ text: `About step ${i + 1} (${step.note}): `, n: (p?.n ?? 0) + 1 }));
+      setTimeout(() => noteRef.current?.focus(), 50);
+    },
+    [selected],
+  );
+  const snapshotHint = review?.source?.worktree
+    ? `Snapshot of ${sourceLabel(review.source)} — Claude's edits here don't touch your checkout; use Draft reply to tell the author.`
+    : undefined;
+
+  // ---- export / import ----
+  const onCopyMarkdown = useCallback(async () => {
+    if (!review) return;
+    try {
+      await navigator.clipboard.writeText(await fetchExport(review.id));
+      showToast("Markdown copied.");
+    } catch (e) {
+      showToast(`Export failed: ${(e as Error).message}`, 6000);
+    }
+  }, [review, showToast]);
+  const onSaveMarkdown = useCallback(async () => {
+    if (!review) return;
+    try {
+      const text = await fetchExport(review.id);
+      const name = `ferret-review-${review.id}.md`;
+      try {
+        const p = await saveFile(name, text);
+        showToast(p ? `Saved ${p}` : "Save cancelled.", 5000);
+      } catch {
+        // no native dialog (terminal build): download instead
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+    } catch (e) {
+      showToast(`Export failed: ${(e as Error).message}`, 6000);
+    }
+  }, [review, showToast]);
+  const [needsRepo, setNeedsRepo] = useState<{ label: string; candidates: string[]; onPicked(repo: string): void } | null>(null);
+  const doImport = useCallback(
+    async (text: string, repo?: string) => {
+      try {
+        const r = await importReview(text, repo);
+        setNeedsRepo(null);
+        await loadReviews();
+        openReview(r.id);
+        showToast(`Imported ${r.findings.length} findings${r.source?.worktree ? " at the reviewed commit" : ""}.`, 5000);
+      } catch (e) {
+        if (e instanceof NeedsRepo) {
+          setNeedsRepo({ label: `Pick the local clone of ${e.ownerRepo || "this review's repo"}`, candidates: e.candidates, onPicked: (p) => void doImport(text, p) });
+        } else showToast(`Import failed: ${(e as Error).message}`, 8000);
+      }
+    },
+    [loadReviews, openReview, showToast],
+  );
+  const onImportFile = useCallback((file: File) => void file.text().then((t) => doImport(t)), [doImport]);
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    const over = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) {
+        e.preventDefault();
+        setDragging(true);
+      }
+    };
+    const leave = () => setDragging(false);
+    const drop = (e: DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const f = e.dataTransfer?.files[0];
+      if (f && /\.(md|json)$/i.test(f.name)) onImportFile(f);
+      else if (f) showToast("Drop a .md or .json review file.");
+    };
+    addEventListener("dragover", over);
+    addEventListener("dragleave", leave);
+    addEventListener("drop", drop);
+    return () => {
+      removeEventListener("dragover", over);
+      removeEventListener("dragleave", leave);
+      removeEventListener("drop", drop);
+    };
+  }, [onImportFile, showToast]);
+
+  const JOB_ORDER = { running: 0, queued: 1, failed: 2, done: 3, cancelled: 4 } as const;
+  // Finished jobs stay as cards until dismissed, but old history (from before this page opened) stays out of the way.
+  const recent = (j: Job) => !j.endedAt || Date.parse(j.endedAt) > openedAt.current - 10 * 60 * 1000;
+  const visibleJobs = jobs
+    .filter((j) => (j.status === "queued" || j.status === "running" || j.status === "failed" || (j.status === "done" && j.kind === "review" && j.reviewId !== reviewId)) && recent(j) && !dismissedJobs.has(j.id))
+    .sort((a, b) => JOB_ORDER[a.status] - JOB_ORDER[b.status] || a.createdAt.localeCompare(b.createdAt));
+  const jobCards = visibleJobs.length > 0 && (
+    <div className="jobs">
+      {visibleJobs.map((j) => (
+        <JobCard
+          key={j.id}
+          job={j}
+          queuedAhead={jobs.filter((o) => o.kind === j.kind && o.status !== "done" && o.status !== "failed" && o.status !== "cancelled" && o.createdAt < j.createdAt).length}
+          onCancel={(id) => void cancelJob(id).then(loadJobs).catch((e: Error) => showToast(`Cancel failed: ${e.message}`))}
+          onOpenReview={(id) => {
+            openReview(id);
+            setDismissedJobs((s) => new Set(s).add(j.id));
+          }}
+          onDismiss={(id) => setDismissedJobs((s) => new Set(s).add(id))}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div className="app">
       <Header
         reviews={reviews}
         review={review}
-        onSwitch={(id) => {
-          setSelectedId(null);
-          setReviewId(id);
-        }}
+        onSwitch={openReview}
         claude={claude}
         connecting={connecting}
         onConnect={onConnect}
         onDelete={onDelete}
         onClearAll={onClearAll}
+        onReview={() => setPanelOpen(true)}
+        onDraftAll={review?.source ? onDraftAll : undefined}
+        draftingAll={draftingAll}
+        onCopyMarkdown={() => void onCopyMarkdown()}
+        onSaveMarkdown={() => void onSaveMarkdown()}
+        onImportFile={onImportFile}
       />
+      <ReviewPanel
+        open={panelOpen || needsRepo !== null}
+        needsRepo={needsRepo}
+        onClose={() => {
+          setPanelOpen(false);
+          setNeedsRepo(null);
+        }}
+        onStarted={(job) => {
+          setPanelOpen(false);
+          showToast(`Review started: ${job.label}`);
+          void loadJobs();
+        }}
+      />
+      {dragging && <div className="drop-hint">Drop a Ferret review (.md) to import it</div>}
       {!review ? (
         // Keep the two-pane layout even when there is nothing to show yet.
         <div className="main">
           <FindingsList
             findings={[]}
+            top={jobCards}
             filters={filters}
             onFiltersChange={setFilters}
             selectedId={null}
@@ -292,9 +493,14 @@ export function App() {
                       <span className="muted">installs the /ai-review skill and links Claude Code to this app</span>
                     </li>
                   )}
-                  <li>Start a new Claude Code session in your project.</li>
                   <li>
-                    Run <code>/ai-review</code> (uncommitted changes) or <code>/ai-review src/some/folder</code>.
+                    <button className="btn fix" onClick={() => setPanelOpen(true)}>
+                      Review ▶
+                    </button>
+                    <span className="muted">a pull request, a commit, or your uncommitted changes — Ferret runs Claude for you</span>
+                  </li>
+                  <li>
+                    Or, in a Claude Code chat: <code>/ai-review</code>, <code>/ai-review HEAD~3..HEAD</code>, <code>/ai-review #218</code>.
                   </li>
                 </ol>
               </div>
@@ -307,6 +513,7 @@ export function App() {
         <div className="main">
           <FindingsList
             findings={review.findings}
+            top={jobCards}
             filters={filters}
             onFiltersChange={setFilters}
             selectedId={selectedId}
@@ -323,6 +530,11 @@ export function App() {
               onSelect={setSelectedId}
               onUpdate={update}
               onSend={sendFinding}
+              onDraft={onDraft}
+              drafting={draftingId(selected.id)}
+              snapshotHint={snapshotHint}
+              presetMessage={presetMessage}
+              onAsk={selected.steps?.length ? onAsk : undefined}
               noteRef={noteRef}
             />
           ) : (

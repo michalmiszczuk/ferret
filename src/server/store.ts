@@ -5,11 +5,18 @@ import path from "node:path";
 import type { StoreEvent } from "../shared/api-types";
 import { sortFindings } from "../shared/findings";
 import { normalizeFindingPath } from "../shared/paths";
-import { reviewSchema, type Finding, type Review, type SubmitReviewInput } from "../shared/schema";
+import { reviewSchema, type Finding, type Review, type ReviewSource, type SubmitReviewInput } from "../shared/schema";
 
 export class NotFoundError extends Error {}
 
-export type FindingUpdate = Partial<Pick<Finding, "status" | "severity" | "myNote" | "resolution">>;
+export type FindingUpdate = Partial<Pick<Finding, "status" | "severity" | "myNote" | "resolution" | "draft">>;
+
+/** Extra review fields set by the server (never by the submitting client). */
+export interface ReviewExtras {
+  source?: ReviewSource;
+  jobId?: string;
+  imported?: Review["imported"];
+}
 
 function newReviewId(): string {
   return `r_${randomBytes(3).toString("hex")}`;
@@ -52,7 +59,13 @@ export class ReviewStore extends EventEmitter {
     return this.list()[0];
   }
 
-  async create(input: SubmitReviewInput): Promise<Review> {
+  /** The review whose source was taken at this commit of this clone (to note "reviewed before"). */
+  findBySourceHead(repo: string, head: string): Review | undefined {
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return this.list().find((r) => r.source && norm(r.source.repo) === norm(repo) && r.source.head === head);
+  }
+
+  async create(input: SubmitReviewInput, extras: ReviewExtras = {}): Promise<Review> {
     const now = new Date().toISOString();
     const findings: Finding[] = input.findings.map((f, i) => ({
       ...f,
@@ -74,6 +87,9 @@ export class ReviewStore extends EventEmitter {
       agent: "claude",
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...(input.projectDir ? { projectDir: input.projectDir } : {}),
+      ...(extras.source ? { source: extras.source } : {}),
+      ...(extras.jobId ? { jobId: extras.jobId } : {}),
+      ...(extras.imported ? { imported: extras.imported } : {}),
       findings,
     };
     this.reviews.set(review.id, review);

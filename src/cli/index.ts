@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClaudeIntegration } from "../server/claude";
+import { claudeInstalled } from "../server/claude-runner";
 import { startServer } from "../server/index";
 import { openWithOs } from "../server/open-external";
 import { findPackageDir, installSkills, registerMcp, registrationMessage } from "./setup";
@@ -19,8 +20,10 @@ async function main(): Promise<void> {
       const s = await startServer({
         port: PORT,
         uiDir: existsSync(path.join(uiDir, "index.html")) ? uiDir : undefined,
+        skillsDir: path.join(pkgDir, "skills"),
         claude: createClaudeIntegration({ skillsDir: path.join(pkgDir, "skills"), mcpUrl: `http://127.0.0.1:${PORT}/mcp` }),
         openExternal: openWithOs,
+        claudeInstalled: () => claudeInstalled(process.env.REVIEW_APP_CLAUDE),
       });
       console.log(`Ferret running at ${s.url}\nMCP endpoint: ${s.url}/mcp\nPress Ctrl+C to stop.`);
     } catch (err) {

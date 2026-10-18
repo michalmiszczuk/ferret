@@ -93,6 +93,21 @@ export async function changedLines(repoRoot: string, rel: string, totalLines: nu
   }
 }
 
+/** Lines of `rel` (at `head`) that differ from `base` — the gutter marks for a commit/PR review. Any git error → []. */
+export async function changedLinesBetween(repoRoot: string, base: string, head: string, rel: string): Promise<number[]> {
+  // Revisions come from stored reviews (possibly imported): never let them be read as git options.
+  if (!base || !head || base.startsWith("-") || head.startsWith("-") || /\s/.test(base + head)) return [];
+  try {
+    const { stdout } = await execFileP(
+      "git", ["diff", "--unified=0", "--no-color", "--no-ext-diff", "--end-of-options", `${base}...${head}`, "--", rel],
+      { cwd: repoRoot, maxBuffer: 20 * 1024 * 1024 },
+    );
+    return parseDiffNewLines(stdout);
+  } catch {
+    return [];
+  }
+}
+
 /** Finds where a finding's snippet lives in the current file. Comparison ignores leading/trailing whitespace per line. */
 export function reanchor(content: string, f: { lineStart: number; lineEnd: number; snippet: string }): Anchor {
   const fileLines = splitLines(content).map((l) => l.trim());

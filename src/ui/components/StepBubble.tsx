@@ -6,10 +6,12 @@ interface Props {
   index: number;
   lost: boolean;
   onStep(i: number | null): void;
+  /** Pre-fills "Message to Claude" with a question about this step. */
+  onAsk?(i: number): void;
 }
 
 /** Shown under the lines of one step of a finding's path: what happens here + navigation. */
-export function StepBubble({ finding, index, lost, onStep }: Props) {
+export function StepBubble({ finding, index, lost, onStep, onAsk }: Props) {
   const steps = finding.steps ?? [];
   const step = steps[index];
   if (!step) return null;
@@ -36,6 +38,11 @@ export function StepBubble({ finding, index, lost, onStep }: Props) {
         <button className="btn" disabled={index === steps.length - 1} onClick={() => onStep(index + 1)}>
           Next →
         </button>
+        {onAsk && (
+          <button className="btn" onClick={() => onAsk(index)}>
+            Ask about this step
+          </button>
+        )}
         <button className="btn quiet-back" onClick={() => onStep(null)}>
           Back to finding
         </button>

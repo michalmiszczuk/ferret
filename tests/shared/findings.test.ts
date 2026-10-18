@@ -88,7 +88,7 @@ describe("countBySeverity / scopeLabel / toSummary", () => {
     expect(s).toEqual({
       id: "r_1", createdAt: "2026-10-15T10:00:00.000Z", repoName: "my-repo",
       scope: { kind: "diff", target: "uncommitted" },
-      counts: { critical: 1, high: 0, medium: 0, low: 1 }, pending: 1, total: 2,
+      counts: { critical: 1, high: 0, medium: 0, low: 1 }, pending: 1, total: 2, label: "my-repo · uncommitted changes",
     });
   });
 });

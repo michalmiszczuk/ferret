@@ -1,4 +1,15 @@
-import type { ClaudeConnectResult, ClaudeStatus, FileResponse, ReviewSummary, StoreEvent } from "../shared/api-types";
+import type {
+  ClaudeConnectResult, ClaudeStatus, CommitSummary, EnvStatus, FileResponse, Job, PrSummary, ReviewSummary, StoreEvent,
+} from "../shared/api-types";
+
+export interface RepoInfo {
+  isRepo: boolean;
+  repoName: string;
+  originOwnerRepo: string | null;
+  defaultBranch: string;
+  head: string;
+  branches: string[];
+}
 import type { Finding, FindingPatch, Review } from "../shared/schema";
 
 async function json<T>(res: Response): Promise<T> {
@@ -9,6 +20,9 @@ async function json<T>(res: Response): Promise<T> {
 const enc = encodeURIComponent;
 
 export const fetchReviews = () => fetch("/api/reviews").then((r) => json<ReviewSummary[]>(r));
+/** The Claude Code chat most recently used in that folder (null when there is none). */
+export const fetchLatestSession = (dir: string) =>
+  fetch(`/api/claude/session?dir=${enc(dir)}`).then((r) => json<{ sessionId: string; modifiedAt: string } | null>(r));
 
 export const fetchReview = (id: string) => fetch(`/api/reviews/${enc(id)}`).then((r) => json<Review>(r));
 
@@ -41,6 +55,63 @@ export const connectClaude = () =>
   fetch("/api/claude/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) =>
     json<ClaudeConnectResult>(r),
   );
+
+// ---- reviewing from Ferret ----
+
+const postJson = <T,>(p: string, body: unknown) =>
+  fetch(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => json<T>(r));
+
+export const fetchEnv = () => fetch("/api/env").then((r) => json<EnvStatus>(r));
+export const fetchRepos = () => fetch("/api/repos").then((r) => json<{ repos: string[] }>(r));
+export const fetchRepoInfo = (repo: string) => fetch(`/api/repos/info?repo=${enc(repo)}`).then((r) => json<RepoInfo>(r));
+export const fetchPrs = (repo: string) => fetch(`/api/repos/prs?repo=${enc(repo)}`).then((r) => json<PrSummary[]>(r));
+export const fetchCommits = (repo: string) => fetch(`/api/repos/commits?repo=${enc(repo)}`).then((r) => json<CommitSummary[]>(r));
+export const fetchJobs = () => fetch("/api/jobs").then((r) => json<Job[]>(r));
+export const cancelJob = (id: string) => postJson<Job>(`/api/jobs/${enc(id)}/cancel`, {});
+export const startDraft = (reviewId: string, findingId: string) => postJson<Job>(`/api/reviews/${enc(reviewId)}/findings/${enc(findingId)}/draft`, {});
+export const startDraftAll = (reviewId: string, redo = false) => postJson<Job>(`/api/reviews/${enc(reviewId)}/draft-all`, { redo });
+export const fetchExport = (reviewId: string) => fetch(`/api/reviews/${enc(reviewId)}/export`).then(async (r) => {
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.text();
+});
+
+export type StartJobScope =
+  | { type: "changes"; repo: string }
+  | { type: "commit"; repo: string; sha: string }
+  | { type: "range"; repo: string; from: string; to: string }
+  | { type: "branch"; repo: string; branch: string; base?: string }
+  | { type: "pr"; repo?: string; number?: number; url?: string };
+
+/** Starts a review job. Throws `NeedsRepo` when a PR URL matched no single local clone. */
+export class NeedsRepo extends Error {
+  constructor(public ownerRepo: string, public candidates: string[]) {
+    super(`Pick the local clone of ${ownerRepo}`);
+  }
+}
+export async function startJob(scope: StartJobScope, model?: string): Promise<Job> {
+  const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "review", scope, ...(model ? { model } : {}) }) });
+  if (r.status === 409) {
+    const b = (await r.json()) as { needsRepo: { ownerRepo: string; candidates: string[] } };
+    throw new NeedsRepo(b.needsRepo.ownerRepo, b.needsRepo.candidates);
+  }
+  if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `${r.status}`);
+  return (await r.json()) as Job;
+}
+
+/** Native folder dialog (desktop app). Returns null when cancelled; throws when this build has no dialog. */
+export const pickFolder = () => postJson<{ path?: string; cancelled?: boolean }>("/api/pick-folder", {}).then((r) => r.path ?? null);
+export const saveFile = (name: string, content: string) =>
+  postJson<{ path?: string; cancelled?: boolean }>("/api/save-file", { name, content }).then((r) => r.path ?? null);
+
+export async function importReview(text: string, repo?: string): Promise<Review> {
+  const r = await fetch("/api/reviews/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, repo }) });
+  if (r.status === 409) {
+    const b = (await r.json()) as { needsRepo: { repoName: string; candidates: string[] } };
+    throw new NeedsRepo(b.needsRepo.repoName, b.needsRepo.candidates);
+  }
+  if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `${r.status}`);
+  return (await r.json()) as Review;
+}
 
 /** Live updates from the server. EventSource reconnects by itself if the server restarts. */
 export function subscribe(onEvent: (e: StoreEvent) => void): () => void {

@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, Notification, shell, Tray } from "electron";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createClaudeIntegration } from "../server/claude";
+import { claudeInstalled } from "../server/claude-runner";
 import { defaultHome, startServer, type RunningServer } from "../server/index";
 import type { StoreEvent } from "../shared/api-types";
 import { countBySeverity } from "../shared/findings";
@@ -176,8 +178,20 @@ async function start(): Promise<void> {
     server = await startServer({
       port: PORT,
       uiDir: unpackedPath(path.join(app.getAppPath(), "dist", "ui")),
+      skillsDir: unpackedPath(path.join(app.getAppPath(), "skills")),
       claude: claudeIntegration,
       openExternal: (url) => shell.openExternal(url),
+      claudeInstalled: () => claudeInstalled(process.env.REVIEW_APP_CLAUDE),
+      pickFolder: async () => {
+        const r = await dialog.showOpenDialog(win ?? undefined!, { properties: ["openDirectory"], title: "Pick a git repository" });
+        return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+      },
+      saveFile: async (suggestedName, content) => {
+        const r = await dialog.showSaveDialog(win ?? undefined!, { defaultPath: suggestedName, filters: [{ name: "Markdown", extensions: ["md"] }] });
+        if (r.canceled || !r.filePath) return null;
+        await fs.writeFile(r.filePath, content, "utf8");
+        return r.filePath;
+      },
     });
   } catch (err) {
     dialog.showErrorBox("Ferret could not start", startupErrorMessage(err, PORT));
@@ -206,8 +220,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => {
     // keep running in the tray
   });
-  app.on("will-quit", () => {
-    void server?.close();
+  app.on("will-quit", (e) => {
+    // Give the server a moment to kill running review processes, then really quit.
+    const s = server;
+    if (!s) return;
+    server = null;
+    e.preventDefault();
+    void s.close().finally(() => app.quit());
   });
   void app.whenReady().then(start);
 }

@@ -1,18 +1,32 @@
 ---
 name: ai-review
-description: Review local code — uncommitted changes, or specific files/folders — and send structured findings to review-app for triage. Use when the user runs /ai-review or asks to review code "into review-app".
+description: Review code — uncommitted changes, specific files/folders, a commit, a range (HEAD~3..HEAD), a branch, or a pull request (#218 or URL) — and send structured findings to Ferret (review-app) for triage. Use when the user runs /ai-review or asks to review code "into Ferret".
 ---
 
-# AI review → review-app
+# AI review → Ferret (review-app)
 
-You are reviewing code and delivering the result to **review-app** (MCP server `review-app`, tool `submit_review`). The user reads and triages findings in the app, NOT in this chat. Do not modify any code during a review.
+You are reviewing code and delivering the result to **Ferret** (MCP server `review-app`, tools `prepare_review_scope` and `submit_review`). The user reads and triages findings in the app, NOT in this chat. Do not modify any code during a review.
 
 ## 1. Scope
 
-- Find the repo root: `git rev-parse --show-toplevel` (if not a git repo, use the current working directory). Use the absolute path as `repoRoot`. On Windows give a native path such as `C:/Users/me/project` (in Git Bash use `pwd -W`, not `pwd`, which prints `/c/...`).
-- **No paths given after /ai-review:** review uncommitted changes. Get them with `git diff HEAD` and `git ls-files --others --exclude-standard`. Scope = `{ "kind": "diff", "target": "uncommitted" }`. If there are no changes, tell the user and stop.
-- **Paths given:** review those files/folders completely (recurse into folders; skip `node_modules`, `dist`, `build`, lock files, generated and binary files). Scope = `{ "kind": "files", "target": [<paths as given>] }`.
-- Read whole files for context, not just diff hunks. For a diff review, report issues in the changed code or issues the change causes.
+Find the repo root: `git rev-parse --show-toplevel` (if not a git repo, use the current working directory). On Windows give a native path such as `C:/Users/me/project` (in Git Bash use `pwd -W`, not `pwd`, which prints `/c/...`). Call it `<repo>`.
+
+Decide the scope from the argument after `/ai-review`:
+
+| Argument | What to do |
+|---|---|
+| nothing | `prepare_review_scope({ repo: "<repo>", scope: "changes" })` — uncommitted changes. If it returns no changed files, tell the user and stop. |
+| file or folder paths (e.g. `src/auth/`) | **No tool call.** Review those files/folders completely (recurse into folders; skip `node_modules`, `dist`, `build`, lock files, generated and binary files). `repoRoot` = `<repo>`, submit scope `{ "kind": "files", "target": [<paths as given>] }`, no `scopeId`. |
+| `a..b` (e.g. `HEAD~3..HEAD`, `main..feature/x`) | `prepare_review_scope({ repo, scope: { range: "a..b" } })` |
+| a commit (`3f2a1c9`, `HEAD~1`) | `prepare_review_scope({ repo, scope: { commit: "<it>" } })` |
+| `#218`, `218`, or a PR URL | `prepare_review_scope({ repo, scope: { pr: "<it>" } })` |
+| a branch name (`feature/x`) | `prepare_review_scope({ repo, scope: { branch: "<it>" } })` — compared with the default branch |
+
+`prepare_review_scope` fetches and snapshots as needed and returns `checkout` (where the code is), `isWorktree`, `diffCommand`, `changedFiles`, `label` and a `scopeId`.
+
+- **Read the code in `checkout`**, not in `<repo>`: for a PR or an older commit it is a detached snapshot (another folder). Run git there as `git -C "<checkout>" …`, e.g. the returned `diffCommand`.
+- Read whole files for context, not just diff hunks. Report issues in the changed code or issues the change causes.
+- In `submit_review`, pass `repoRoot: "<checkout>"`, `scope: { "kind": "files", "target": <changedFiles> }`, and the `scopeId`. Finding `file` paths are relative to `checkout`, forward slashes.
 
 ## 2. What to look for
 
@@ -38,7 +52,7 @@ Bugs, security problems, performance issues, and maintainability problems. Only 
 
 ## 5. Submit
 
-Call `submit_review` with `repoRoot`, `scope`, a one-paragraph `summary`, all `findings`, `sessionId: "${CLAUDE_SESSION_ID}"` and `projectDir: "${CLAUDE_PROJECT_DIR}"` (this session's id and folder, so the app's "Send to Claude" can come back to this conversation in the right VS Code window).
+Call `submit_review` with `repoRoot`, `scope`, the `scopeId` from `prepare_review_scope` (when you called it), a one-paragraph `summary`, all `findings`, `sessionId: "${CLAUDE_SESSION_ID}"` and `projectDir: "${CLAUDE_PROJECT_DIR}"` (this session's id and folder, so the app's "Send to Claude" can come back to this conversation in the right VS Code window).
 
 - If the tool returns a validation error, fix the offending fields and call it again.
 - If the `review-app` tool is unavailable or the connection fails, the app is probably not running:

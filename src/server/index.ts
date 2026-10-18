@@ -1,11 +1,15 @@
 import express, { type RequestHandler } from "express";
+import { promises as fs } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createApiRouter } from "./api";
 import type { ClaudeIntegration } from "./claude";
+import { createGithub, type Github } from "./github";
+import { JobManager } from "./jobs";
 import { mountMcp } from "./mcp";
+import { skillRules } from "./prompts";
 import { ReviewStore } from "./store";
 
 export const HOST = "127.0.0.1";
@@ -24,18 +28,55 @@ export function hostGuard(getPort: () => number): RequestHandler {
   };
 }
 
+export interface ServerOptions {
+  port?: number;
+  home?: string;
+  uiDir?: string;
+  log?: (m: string) => void;
+  claude?: ClaudeIntegration;
+  openExternal?: (url: string) => Promise<void>;
+  /** Folder holding ai-review/SKILL.md etc.; its rules drive headless reviews. */
+  skillsDir?: string;
+  /** Override the `claude` executable (dev: tests/fake-claude/claude.cjs). Default: env REVIEW_APP_CLAUDE or "claude". */
+  claudePath?: string;
+  github?: Github;
+  pickFolder?: () => Promise<string | null>;
+  saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
+  claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
+}
+
 export function createApp(opts: {
   store: ReviewStore;
+  jobs: JobManager;
+  github: Github;
   getPort: () => number;
   uiDir?: string;
   claude?: ClaudeIntegration;
   openExternal?: (url: string) => Promise<void>;
+  pickFolder?: ServerOptions["pickFolder"];
+  saveFile?: ServerOptions["saveFile"];
+  claudeInstalled?: ServerOptions["claudeInstalled"];
 }): express.Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(hostGuard(opts.getPort));
-  app.use("/api", createApiRouter(opts.store, opts.claude, opts.openExternal));
-  mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`);
+  app.use(
+    "/api",
+    createApiRouter(opts.store, {
+      claude: opts.claude,
+      openExternal: opts.openExternal,
+      jobs: opts.jobs,
+      github: opts.github,
+      pickFolder: opts.pickFolder,
+      saveFile: opts.saveFile,
+      claudeInstalled: opts.claudeInstalled,
+    }),
+  );
+  mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`, {
+    jobs: opts.jobs,
+    prInfo: (repo, n) => opts.github.prInfo(repo, n),
+    worktreesDir: opts.jobs.worktreesDir,
+  });
   if (opts.uiDir) {
     const uiDir = opts.uiDir;
     app.use(express.static(uiDir));
@@ -52,42 +93,68 @@ export interface RunningServer {
   url: string;
   port: number;
   store: ReviewStore;
+  jobs: JobManager;
   close(): Promise<void>;
 }
 
-export async function startServer(
-  opts: {
-    port?: number;
-    home?: string;
-    uiDir?: string;
-    log?: (m: string) => void;
-    claude?: ClaudeIntegration;
-    openExternal?: (url: string) => Promise<void>;
-  } = {},
-): Promise<RunningServer> {
-  const store = new ReviewStore(path.join(opts.home ?? defaultHome(), "reviews"), opts.log);
+export async function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
+  const home = opts.home ?? defaultHome();
+  const log = opts.log ?? console.warn;
+  const store = new ReviewStore(path.join(home, "reviews"), log);
   await store.load();
   let port = opts.port ?? 4477;
+  const mcpUrl = () => `http://${HOST}:${port}/mcp`;
+
+  let rules = "";
+  if (opts.skillsDir) {
+    try {
+      rules = skillRules(await fs.readFile(path.join(opts.skillsDir, "ai-review", "SKILL.md"), "utf8"));
+    } catch (err) {
+      log(`Ferret: could not read the ai-review skill (${(err as Error).message}); headless reviews will run without its rules`);
+    }
+  }
+  const github = opts.github ?? createGithub();
+  const jobs = new JobManager({
+    store,
+    home,
+    mcpUrl: mcpUrl(), // port 0 (tests) is fixed up after listen below
+    rules,
+    prInfo: (repo, n) => github.prInfo(repo, n),
+    claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE,
+    log,
+  });
+  await jobs.load();
+  await jobs.sweepWorktrees(); // jobs from a previous run were just marked cancelled, so only reviews hold worktrees now
+
   const app = createApp({
     store,
+    jobs,
+    github,
     getPort: () => port,
     uiDir: opts.uiDir,
     claude: opts.claude,
     openExternal: opts.openExternal,
+    pickFolder: opts.pickFolder,
+    saveFile: opts.saveFile,
+    claudeInstalled: opts.claudeInstalled,
   });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));
     s.on("error", reject);
   });
   port = (server.address() as AddressInfo).port;
+  jobs.setMcpUrl(mcpUrl());
   return {
     url: `http://${HOST}:${port}`,
     port,
     store,
-    close: () =>
-      new Promise<void>((resolve) => {
+    jobs,
+    close: async () => {
+      await jobs.shutdown(); // no claude/git process outlives the app
+      await new Promise<void>((resolve) => {
         server.closeAllConnections();
         server.close(() => resolve());
-      }),
+      });
+    },
   };
 }

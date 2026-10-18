@@ -1,4 +1,5 @@
 import type { ReviewSummary } from "./api-types";
+import { sourceLabel } from "./git-parse";
 import { repoName } from "./paths";
 import type { Finding, FindingStatus, Review, Scope, Severity } from "./schema";
 
@@ -61,6 +62,7 @@ export function toSummary(r: Review): ReviewSummary {
     id: r.id,
     createdAt: r.createdAt,
     repoName: repoName(r.repoRoot),
+    label: r.source ? sourceLabel(r.source) : `${repoName(r.repoRoot)} · ${scopeLabel(r.scope)}`,
     scope: r.scope,
     counts: countBySeverity(r.findings),
     pending: r.findings.filter((f) => f.status === "fix_requested").length,

@@ -1,9 +1,12 @@
-import { listView, SEVERITY_LABEL, type Filters, type StatusFilter } from "../../shared/findings";
+import type { ReactNode } from "react";
+import { countBySeverity, listView, SEVERITY_LABEL, type Filters, type StatusFilter } from "../../shared/findings";
 import { Gem } from "./Gem";
 import { SEVERITIES, type Finding, type FindingStatus, type Severity } from "../../shared/schema";
 
 interface Props {
   findings: Finding[];
+  /** Rendered above the list (running jobs). */
+  top?: ReactNode;
   filters: Filters;
   onFiltersChange(f: Filters): void;
   selectedId: string | null;
@@ -33,6 +36,7 @@ export function FindingsList(p: Props) {
 
   // No chip selected = show all. Each click turns one severity on/off; turning the last one off shows all again.
   const showingAll = p.filters.severities.length === SEVERITIES.length;
+  const counts = countBySeverity(p.findings);
   const toggleSeverity = (s: Severity) => {
     const current = showingAll ? [] : p.filters.severities;
     let next = current.includes(s) ? current.filter((x) => x !== s) : SEVERITIES.filter((x) => x === s || current.includes(x));
@@ -53,10 +57,12 @@ export function FindingsList(p: Props) {
             onClick={() => toggleSeverity(s)}
           >
             <Gem severity={s} /> {SEVERITY_LABEL[s]}
+            <span className="chip-n" aria-label={`${counts[s]} ${SEVERITY_LABEL[s]}`}>{counts[s]}</span>
           </button>
         ))}
       </div>
 
+      {p.top}
       <div className="section-label">
         <span>Findings</span>
         <div className="segmented" role="group" aria-label="Status filter">

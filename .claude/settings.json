@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:NO_COLOR=1; npm run typecheck 2>&1 | Select-Object -Last 3; npm run build 2>&1 | Select-String \"error|built in\"; $sp = \"C:\\\\Users\\\\MICHAM~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Micha-Miszczuk-Code-review-app\\\\9036c21a-aa03-483c-8d2b-7409cde10449\\\\scratchpad\"; $env:SCREENSHOT_URL = \"http://127.0.0.1:4478/\"; npm run screenshot -- \"$sp\\\\jobs2.png\" 2>&1 | Select-Object -Last 1)",
+      "PowerShell($sp = \"C:\\\\Users\\\\MICHAM~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Micha-Miszczuk-Code-review-app\\\\9036c21a-aa03-483c-8d2b-7409cde10449\\\\scratchpad\"; $list = Invoke-RestMethod http://127.0.0.1:4478/api/reviews; $list | ForEach-Object { \"$\\($_.id\\) total=$\\($_.total\\) $\\($_.label\\)\" }; $r = $list | Where-Object { $_.total -gt 0 } | Select-Object -First 1; Invoke-RestMethod -Method Patch -Uri \"http://127.0.0.1:4478/api/reviews/$\\($r.id\\)/findings/f1\" -ContentType \"application/json\" -Body '{\"draft\":\"The version field looks hand-edited; could you bump it with `npm version` so the tag and changelog stay in sync?\"}' | Out-Null; $env:SCREENSHOT_URL = \"http://127.0.0.1:4478/r/$\\($r.id\\)\"; npm run screenshot -- \"$sp\\\\draft.png\" 2>&1 | Select-Object -Last 1)"
+    ]
+  }
+}
