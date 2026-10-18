@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Job } from "../../shared/api-types";
 import { modelLabel } from "../../shared/models";
+import { FerretDigger } from "./FerretDigger";
 
 interface Props {
   job: Job;
@@ -49,7 +50,8 @@ export function JobCard({ job, queuedAhead, onCancel, onOpenReview, onDismiss }:
       <div className="job-body">
         {job.status === "queued" && <span className="muted">Queued{queuedAhead > 0 ? `, ${queuedAhead} ahead` : ""}</span>}
         {job.status === "running" && (
-          <div className="job-live">
+          <div className={`job-live${job.kind === "review" ? " with-digger" : ""}`}>
+            {job.kind === "review" && <FerretDigger size={42} />}
             <div className="job-phase">
               <span>{job.phase ?? "Working"}…</span>
               {job.stats && (job.stats.tools > 0 || job.stats.files > 0) && (

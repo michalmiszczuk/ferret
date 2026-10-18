@@ -41,9 +41,9 @@ Done: worktree sweep (`JobManager.sweepWorktrees()`, at startup and after delete
 
 ## After this step (agreed roadmap)
 
-1. **In-app Claude chat** (replaces the VS Code round-trip for discussing findings/steps; same runner).
-2. **Send to ClickUp** (post the Markdown export as a comment/attachment on a task; needs an API token).
-3. Later: Mac build, tests pass at the end of the POC, Bitbucket API.
+1. ~~Send to ClickUp~~ — built 2026-10-18 (pulled ahead at the user's request): Export ▾ → Send to ClickUp… picks a person (searchable member list) and a task; the .md is attached to the task (ClickUp's API cannot attach files to chat — the user chose this over a Doc link after trying one) + summary comment + a DM to the person linking to it. A Task tab does attach+comment only. Personal token in `~/.review-app/clickup.json` (OAuth deferred); `src/server/clickup.ts`, verified against a mock (`scripts/try-clickup.ts`); task flow user-verified for real, the DM-to-person variant still to be tried.
+2. **In-app Claude chat** (replaces the VS Code round-trip for discussing findings/steps; same runner).
+3. Later: Mac build, tests pass at the end of the POC, Bitbucket API, ClickUp OAuth "Connect" button when Ferret is distributed to the team (user decided 2026-10-18 to keep the pk_ token until then).
 
 ## Working agreements
 

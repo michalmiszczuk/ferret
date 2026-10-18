@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClaudeStatus, Job, ReviewSummary } from "../shared/api-types";
 import { claudeOpenUrl, realValue, vscodeFolderUrl } from "../shared/claude-link";
-import { navOrder, type Filters } from "../shared/findings";
+import { navOrder, toSummary, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
 import {
   cancelJob, clearReviews, connectClaude, deleteReview, fetchClaudeStatus, fetchExport, fetchJobs, fetchLatestSession, fetchReview, fetchReviews,
   importReview, NeedsRepo, openInVsCode, patchFinding, saveFile, startDraft, startDraftAll, subscribe,
 } from "./api";
 import { sourceLabel } from "../shared/git-parse";
+import { ClickUpDialog } from "./components/ClickUpDialog";
 import { CodeView } from "./components/CodeView";
 import { FindingsList } from "./components/FindingsList";
 import { ConnectButton, Header } from "./components/Header";
@@ -48,6 +49,7 @@ export function App() {
   // Background jobs (reviews started from Ferret, reply drafts). Finished ones can be dismissed from the list.
   const [jobs, setJobs] = useState<Job[]>([]);
   const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set());
+  const [clickUpOpen, setClickUpOpen] = useState(false);
   const openedAt = useRef(Date.now());
   const [panelOpen, setPanelOpen] = useState(() => new URLSearchParams(location.search).get("panel") === "review");
   const loadJobs = useCallback(() => fetchJobs().then(setJobs).catch(() => {}), []);
@@ -453,8 +455,21 @@ export function App() {
         draftingAll={draftingAll}
         onCopyMarkdown={() => void onCopyMarkdown()}
         onSaveMarkdown={() => void onSaveMarkdown()}
+        onSendClickUp={() => review && setClickUpOpen(true)}
         onImportFile={onImportFile}
       />
+      {review && (
+        <ClickUpDialog
+          open={clickUpOpen}
+          reviewId={review.id}
+          reviewLabel={review.source ? sourceLabel(review.source) : toSummary(review).label}
+          countsLine={(() => {
+            const c = toSummary(review).counts;
+            return `🔴 ${c.critical} · 🟠 ${c.high} · 🟡 ${c.medium} · 🟢 ${c.low}`;
+          })()}
+          onClose={() => setClickUpOpen(false)}
+        />
+      )}
       <ReviewPanel
         open={panelOpen || needsRepo !== null}
         needsRepo={needsRepo}

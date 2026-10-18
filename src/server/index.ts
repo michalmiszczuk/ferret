@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { createApiRouter } from "./api";
 import type { ClaudeIntegration } from "./claude";
+import { createClickUp, type ClickUpService } from "./clickup";
 import { createGithub, type Github } from "./github";
 import { JobManager } from "./jobs";
 import { mountMcp } from "./mcp";
@@ -40,6 +41,7 @@ export interface ServerOptions {
   /** Override the `claude` executable (dev: tests/fake-claude/claude.cjs). Default: env REVIEW_APP_CLAUDE or "claude". */
   claudePath?: string;
   github?: Github;
+  clickup?: ClickUpService;
   pickFolder?: () => Promise<string | null>;
   saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
   claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
@@ -56,6 +58,7 @@ export function createApp(opts: {
   pickFolder?: ServerOptions["pickFolder"];
   saveFile?: ServerOptions["saveFile"];
   claudeInstalled?: ServerOptions["claudeInstalled"];
+  clickup?: ClickUpService;
 }): express.Express {
   const app = express();
   app.disable("x-powered-by");
@@ -70,6 +73,7 @@ export function createApp(opts: {
       pickFolder: opts.pickFolder,
       saveFile: opts.saveFile,
       claudeInstalled: opts.claudeInstalled,
+      clickup: opts.clickup,
     }),
   );
   mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`, {
@@ -137,6 +141,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     pickFolder: opts.pickFolder,
     saveFile: opts.saveFile,
     claudeInstalled: opts.claudeInstalled,
+    clickup: opts.clickup ?? createClickUp(path.join(home, "clickup.json")),
   });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));

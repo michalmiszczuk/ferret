@@ -20,6 +20,44 @@ async function json<T>(res: Response): Promise<T> {
 const enc = encodeURIComponent;
 
 export const fetchReviews = () => fetch("/api/reviews").then((r) => json<ReviewSummary[]>(r));
+// ---- ClickUp ----
+export interface ClickUpPerson {
+  id: number;
+  username: string;
+  email?: string;
+  initials?: string;
+  profilePicture?: string;
+}
+export interface ClickUpWorkspace {
+  id: string;
+  name: string;
+  members: ClickUpPerson[];
+}
+export interface ClickUpStatus {
+  configured: boolean;
+  user?: string;
+  recent: { id: string; name: string; url: string; usedAt: string }[];
+  recentPeople: { id: number; username: string; workspaceId: string; usedAt: string }[];
+}
+export const fetchClickUpStatus = () => fetch("/api/clickup/status").then((r) => json<ClickUpStatus>(r));
+export const saveClickUpToken = (token: string) =>
+  fetch("/api/clickup/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }).then((r) =>
+    json<{ ok: true; user: string }>(r),
+  );
+export const fetchClickUpMembers = () => fetch("/api/clickup/members").then((r) => json<{ workspaces: ClickUpWorkspace[] }>(r));
+export const sendClickUpDm = (reviewId: string, body: { workspaceId: string; userId: number; username: string; message: string; task: string }) =>
+  fetch(`/api/reviews/${enc(reviewId)}/clickup-dm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => json<{ username: string; taskName: string; url: string }>(r));
+export const sendToClickUp = (reviewId: string, task: string) =>
+  fetch(`/api/reviews/${enc(reviewId)}/clickup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task }),
+  }).then((r) => json<{ taskId: string; taskName: string; url: string }>(r));
+
 /** The Claude Code chat most recently used in that folder (null when there is none). */
 export const fetchLatestSession = (dir: string) =>
   fetch(`/api/claude/session?dir=${enc(dir)}`).then((r) => json<{ sessionId: string; modifiedAt: string } | null>(r));
@@ -65,7 +103,8 @@ export const fetchEnv = () => fetch("/api/env").then((r) => json<EnvStatus>(r));
 export const fetchRepos = () => fetch("/api/repos").then((r) => json<{ repos: string[] }>(r));
 export const fetchRepoInfo = (repo: string) => fetch(`/api/repos/info?repo=${enc(repo)}`).then((r) => json<RepoInfo>(r));
 export const fetchPrs = (repo: string) => fetch(`/api/repos/prs?repo=${enc(repo)}`).then((r) => json<PrSummary[]>(r));
-export const fetchCommits = (repo: string) => fetch(`/api/repos/commits?repo=${enc(repo)}`).then((r) => json<CommitSummary[]>(r));
+export const fetchCommits = (repo: string, limit = 100) =>
+  fetch(`/api/repos/commits?repo=${enc(repo)}&limit=${limit}`).then((r) => json<CommitSummary[]>(r));
 export const fetchJobs = () => fetch("/api/jobs").then((r) => json<Job[]>(r));
 export const cancelJob = (id: string) => postJson<Job>(`/api/jobs/${enc(id)}/cancel`, {});
 export const startDraft = (reviewId: string, findingId: string) => postJson<Job>(`/api/reviews/${enc(reviewId)}/findings/${enc(findingId)}/draft`, {});

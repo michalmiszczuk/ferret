@@ -40,6 +40,7 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
   const [prNumber, setPrNumber] = useState<number | null>(null);
   const [prsError, setPrsError] = useState<string | null>(null);
   const [commits, setCommits] = useState<CommitSummary[]>([]);
+  const [commitQuery, setCommitQuery] = useState("");
   const [sel, setSel] = useState<{ from?: string; to?: string }>({});
   const [typedRev, setTypedRev] = useState("");
   const [branchMode, setBranchMode] = useState(false);
@@ -96,11 +97,16 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
   }, [open, repo, info, tab]);
 
   // Pasting a PR URL: switch tab, pick the number, and auto-select a matching clone.
+  // "#218" / "218" picks that PR directly; any other text filters the list below.
   const onPrUrl = useCallback(
     async (url: string) => {
       setPrUrl(url);
+      const direct = /^#?(\d+)$/.exec(url.trim());
       const pr = parsePrUrl(url);
-      if (!pr) return;
+      if (!pr) {
+        setPrNumber(direct ? Number(direct[1]) : null);
+        return;
+      }
       if (pr.host === "bitbucket") {
         setTab("commit");
         setBranchMode(true);
@@ -203,6 +209,8 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
   }, [open, onClose]);
 
   if (!open) return null;
+  const cq = commitQuery.trim().toLowerCase();
+  const shownCommits = cq ? commits.filter((c) => `${c.short} ${c.sha} ${c.subject} ${c.author}`.toLowerCase().includes(cq)) : commits;
   const ghMissing = env && !(env.gh.installed && env.gh.loggedIn);
   const claudeMissing = env && !env.claude.installed;
   const chosen = MODELS.find((m) => m.id === model);
@@ -275,22 +283,44 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
 
             {tab === "pr" && (
               <div className="field">
-                <label className="label">Pull request URL</label>
-                <input placeholder="https://github.com/owner/repo/pull/218" value={prUrl} onChange={(e) => void onPrUrl(e.target.value)} />
+                <label className="label">Pull request</label>
+                <input
+                  placeholder="Paste a link or #number, or type to search the open PRs"
+                  value={prUrl}
+                  onChange={(e) => void onPrUrl(e.target.value)}
+                />
                 {ghMissing && <p className="warn small">{GH_HINT}</p>}
                 {prsError && <p className="warn small">{prsError}</p>}
-                {prs.length > 0 && (
-                  <ul className="pick-list">
-                    {prs.map((p) => (
-                      <li key={p.number}>
-                        <button className={`pick${prNumber === p.number ? " on" : ""}`} onClick={() => { setPrNumber(p.number); setPrUrl(p.url); }}>
-                          <span className="pick-main">#{p.number} {p.title}</span>
-                          <span className="pick-sub">{p.author} · {p.headRefName} · {new Date(p.updatedAt).toLocaleDateString()}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                {(() => {
+                  const typed = prUrl.trim();
+                  const direct = /^#?(\d+)$/.exec(typed); // digits pick that PR number and narrow the list
+                  const q = parsePrUrl(prUrl) ? "" : direct ? direct[1] : typed.toLowerCase();
+                  const shown = q
+                    ? prs.filter((p) => `#${p.number} ${p.title} ${p.author} ${p.headRefName}`.toLowerCase().includes(q))
+                    : prs;
+                  if (prs.length === 0) return null;
+                  if (shown.length === 0) {
+                    return (
+                      <p className="muted small">
+                        {direct
+                          ? `#${direct[1]} is not in the open-PR list — Start review will fetch it anyway.`
+                          : `No open PR matches "${typed}".`}
+                      </p>
+                    );
+                  }
+                  return (
+                    <ul className="pick-list">
+                      {shown.map((p) => (
+                        <li key={p.number}>
+                          <button className={`pick${prNumber === p.number ? " on" : ""}`} onClick={() => { setPrNumber(p.number); setPrUrl(p.url); }}>
+                            <span className="pick-main">#{p.number} {p.title}</span>
+                            <span className="pick-sub">{p.author} · {p.headRefName} · {new Date(p.updatedAt).toLocaleDateString()}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
               </div>
             )}
 
@@ -318,9 +348,15 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
                 ) : (
                   <>
                     <input placeholder="3f2a1c9, HEAD~1, or HEAD~3..HEAD" value={typedRev} onChange={(e) => { setTypedRev(e.target.value); setSel({}); }} />
-                    <div className="muted small">Or pick from the last 50: click one commit, shift-click another for a range.</div>
+                    <div className="muted small">Or pick from the latest commits: click one, shift-click another for a range.</div>
+                    <input
+                      className="list-filter"
+                      placeholder="Search commits by message, author or sha"
+                      value={commitQuery}
+                      onChange={(e) => setCommitQuery(e.target.value)}
+                    />
                     <ul className="pick-list commits">
-                      {commits.map((c) => {
+                      {shownCommits.map((c) => {
                         const on = sel.from === c.sha || sel.to === c.sha || sel.from === `${c.sha}^`;
                         return (
                           <li key={c.sha}>

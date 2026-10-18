@@ -54,6 +54,8 @@ Reviews run one at a time; cards above the findings list show progress and let y
 
 **Share a review.** **Export ▾** → *Copy Markdown* or *Save .md…* writes a readable Markdown file that also carries the review data. A friend with Ferret drops it onto their window (or *Import review…*) and, if their clone has that commit, gets the same findings on the same code.
 
+**Send to ClickUp.** **Export ▾** → *Send to ClickUp…* sends the review to a teammate: search the people in your Workspace, pick one, pick a task to hold the file (usually the PR's task — ClickUp's API only uploads files to tasks, not to chat), and Ferret attaches the .md there, posts a summary comment on the task, and DMs the person your editable message with a link to it. The *Task* tab does just the attach + comment, no DM. The last five people/tasks are remembered. Needs your personal API token once (ClickUp → Settings → Apps → API Token); it is stored in `~/.review-app/clickup.json` and never leaves your machine except to api.clickup.com.
+
 **Snapshots.** PRs and older commits are checked out into Ferret-owned git worktrees under `~/.review-app/worktrees/` (`git worktree add --detach`). Your own checkout is never touched, but your repo's `.git/worktrees/` gains an entry per snapshot; Ferret removes the snapshot when its last review is deleted and sweeps unused ones at startup. Headless runs on a snapshot use `~/.review-app/sandbox` as the working directory, so a PR's own `CLAUDE.md` and hooks are never loaded.
 
 Models: `opus` for reviews, `sonnet` for drafts; override with `REVIEW_APP_MODEL` / `REVIEW_APP_DRAFT_MODEL`. `REVIEW_APP_CLAUDE` points at a different `claude` executable.

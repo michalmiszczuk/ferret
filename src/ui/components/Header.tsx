@@ -21,6 +21,7 @@ interface Props {
   draftingAll?: boolean;
   onCopyMarkdown(): void;
   onSaveMarkdown(): void;
+  onSendClickUp(): void;
   onImportFile(file: File): void;
 }
 
@@ -41,7 +42,7 @@ export function ConnectButton({
 
 export function Header({
   reviews, review, onSwitch, claude, connecting, onConnect, onDelete, onClearAll, onReview,
-  onDraftAll, draftingAll, onCopyMarkdown, onSaveMarkdown, onImportFile,
+  onDraftAll, draftingAll, onCopyMarkdown, onSaveMarkdown, onSendClickUp, onImportFile,
 }: Props) {
   return (
     <header className="header">
@@ -74,7 +75,13 @@ export function Header({
           {draftingAll ? "Drafting…" : "Draft all"}
         </button>
       )}
-      <ExportMenu hasReview={Boolean(review)} onCopyMarkdown={onCopyMarkdown} onSaveMarkdown={onSaveMarkdown} onImportFile={onImportFile} />
+      <ExportMenu
+        hasReview={Boolean(review)}
+        onCopyMarkdown={onCopyMarkdown}
+        onSaveMarkdown={onSaveMarkdown}
+        onSendClickUp={onSendClickUp}
+        onImportFile={onImportFile}
+      />
       {review && (
         <button className="btn quiet" title="Delete this review" onClick={onDelete}>
           Delete

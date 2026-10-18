@@ -4,11 +4,12 @@ interface Props {
   hasReview: boolean;
   onCopyMarkdown(): void;
   onSaveMarkdown(): void;
+  onSendClickUp(): void;
   onImportFile(file: File): void;
 }
 
-/** Header menu: Export ▾ (Copy Markdown / Save .md…) and Import review…. */
-export function ExportMenu({ hasReview, onCopyMarkdown, onSaveMarkdown, onImportFile }: Props) {
+/** Header menu: Export ▾ (Copy Markdown / Save .md… / Send to ClickUp…) and Import review…. */
+export function ExportMenu({ hasReview, onCopyMarkdown, onSaveMarkdown, onSendClickUp, onImportFile }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const close = () => detailsRef.current?.removeAttribute("open");
@@ -21,6 +22,9 @@ export function ExportMenu({ hasReview, onCopyMarkdown, onSaveMarkdown, onImport
         </button>
         <button disabled={!hasReview} onClick={onSaveMarkdown}>
           Save .md…
+        </button>
+        <button disabled={!hasReview} onClick={onSendClickUp}>
+          Send to ClickUp…
         </button>
         <hr />
         <button onClick={() => fileRef.current?.click()}>Import review…</button>

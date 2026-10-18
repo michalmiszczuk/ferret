@@ -1,12 +1,13 @@
 import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import type { EnvStatus, FileResponse, StoreEvent } from "../shared/api-types";
-import { toSummary } from "../shared/findings";
+import { countBySeverity, toSummary } from "../shared/findings";
 import { originMatches, ownerRepoFromOrigin, parsePrUrl } from "../shared/git-parse";
 import { MODEL_ID } from "../shared/models";
 import { findingPatchSchema } from "../shared/schema";
 import type { ClaudeIntegration } from "./claude";
 import { latestSession } from "./claude-sessions";
+import { ClickUpError, parseTaskRef, type ClickUpService } from "./clickup";
 import { changedLines, changedLinesBetween, PathError, readRepoFile, reanchor, splitLines } from "./files";
 import { GH_UNAVAILABLE, GithubError, type Github } from "./github";
 import type { JobManager } from "./jobs";
@@ -27,10 +28,11 @@ export interface ApiOptions {
   pickFolder?: () => Promise<string | null>;
   saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
   claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
+  clickup?: ClickUpService;
 }
 
 export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Router {
-  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled } = opts;
+  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup } = opts;
   const r = Router();
   r.use(express.json({ limit: "1mb" }));
 
@@ -399,6 +401,105 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
           res.status(201).json(jobsRef.startDraftAll(req.params.id, Boolean((req.body as { redo?: boolean }).redo)));
         } catch (err) {
           if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+  }
+
+  if (clickup) {
+    const cu = clickup;
+    r.get(
+      "/clickup/status",
+      wrap(async (_req, res) => res.json(await cu.status())),
+    );
+    r.post(
+      "/clickup/token",
+      wrap(async (req, res) => {
+        if (!jsonOnly(req, res)) return;
+        const token = (req.body as { token?: unknown }).token;
+        if (typeof token !== "string" || !token.trim()) return res.status(400).json({ error: "token required" });
+        try {
+          res.json({ ok: true, user: await cu.setToken(token) });
+        } catch (err) {
+          if (err instanceof ClickUpError) return res.status(err.status === 401 ? 401 : 400).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+    r.get(
+      "/clickup/members",
+      wrap(async (_req, res) => {
+        try {
+          res.json({ workspaces: await cu.members() });
+        } catch (err) {
+          if (err instanceof ClickUpError) return res.status(err.status === 401 ? 401 : 502).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+    r.post(
+      "/reviews/:id/clickup-dm",
+      wrap(async (req, res) => {
+        if (!jsonOnly(req, res)) return;
+        const review = store.get(req.params.id);
+        if (!review) return res.status(404).json({ error: "Review not found" });
+        const { workspaceId, userId, message, username, task } = req.body as {
+          workspaceId?: unknown;
+          userId?: unknown;
+          message?: unknown;
+          username?: unknown;
+          task?: unknown;
+        };
+        if (typeof workspaceId !== "string" || !/^\d+$/.test(workspaceId)) return res.status(400).json({ error: "workspaceId required" });
+        if (typeof userId !== "number" || !Number.isInteger(userId)) return res.status(400).json({ error: "userId required" });
+        if (typeof message !== "string" || !message.trim()) return res.status(400).json({ error: "message required" });
+        if (typeof task !== "string" || !task.trim()) return res.status(400).json({ error: "task required" });
+        const ref = parseTaskRef(task);
+        if (!ref) return res.status(400).json({ error: "Paste a ClickUp task link (https://app.clickup.com/t/…) or a task id" });
+        const counts = countBySeverity(review.findings.filter((f) => f.status !== "dismissed"));
+        const comment = [
+          `Ferret review · ${toSummary(review).label}`,
+          `🔴 ${counts.critical} critical · 🟠 ${counts.high} high · 🟡 ${counts.medium} medium · 🟢 ${counts.low} low`,
+          `Full review attached (ferret-review-${review.id}.md). Open it in Ferret (Export ▾ → Import review…) to read it on the code at the reviewed commit.`,
+        ].join("\n");
+        try {
+          // 1. The real file: attached to the task (the only file upload ClickUp's API allows) + summary comment.
+          const sent = await cu.send(ref, { filename: `ferret-review-${review.id}.md`, markdown: exportReview(review), comment });
+          // 2. The person: a DM pointing at it.
+          await cu.dm(
+            workspaceId,
+            userId,
+            `${message.trim()}\n\nReview file (ferret-review-${review.id}.md) is attached here: ${sent.url}`,
+            typeof username === "string" ? username : undefined,
+          );
+          res.json({ username: typeof username === "string" ? username : `user ${userId}`, taskName: sent.taskName, url: sent.url });
+        } catch (err) {
+          if (err instanceof ClickUpError) return res.status(err.status && err.status >= 400 && err.status < 500 ? err.status : 502).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+    r.post(
+      "/reviews/:id/clickup",
+      wrap(async (req, res) => {
+        if (!jsonOnly(req, res)) return;
+        const review = store.get(req.params.id);
+        if (!review) return res.status(404).json({ error: "Review not found" });
+        const task = (req.body as { task?: unknown }).task;
+        if (typeof task !== "string" || !task.trim()) return res.status(400).json({ error: "task required" });
+        const ref = parseTaskRef(task);
+        if (!ref) return res.status(400).json({ error: "Paste a ClickUp task link (https://app.clickup.com/t/…) or a task id" });
+        const counts = countBySeverity(review.findings.filter((f) => f.status !== "dismissed"));
+        const comment = [
+          `Ferret review · ${toSummary(review).label}`,
+          `🔴 ${counts.critical} critical · 🟠 ${counts.high} high · 🟡 ${counts.medium} medium · 🟢 ${counts.low} low`,
+          `Full review attached (ferret-review-${review.id}.md). Open it in Ferret (Export ▾ → Import review…) to read it on the code at the reviewed commit.`,
+        ].join("\n");
+        try {
+          res.json(await cu.send(ref, { filename: `ferret-review-${review.id}.md`, markdown: exportReview(review), comment }));
+        } catch (err) {
+          if (err instanceof ClickUpError) return res.status(err.status && err.status >= 400 && err.status < 500 ? err.status : 502).json({ error: err.message });
           throw err;
         }
       }),
