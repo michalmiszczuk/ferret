@@ -84,7 +84,12 @@ Reviews run one at a time; cards above the findings list show progress and let y
 
 **Send to ClickUp.** **Export ▾** → *Send to ClickUp…* sends the review to a teammate: search the people in your Workspace, pick one, pick a task to hold the file (usually the PR's task — ClickUp's API only uploads files to tasks, not to chat), and Ferret attaches the .md there, posts a summary comment on the task, and DMs the person your editable message with a link to it. The *Task* tab does just the attach + comment, no DM. The last five people/tasks are remembered. Needs your personal API token once (ClickUp → Settings → Apps → API Token); it is stored in `~/.review-app/clickup.json` and never leaves your machine except to api.clickup.com.
 
-**Whiteboard.** With [Whiteboard](https://dev.fast) installed and connected to Claude Code, the Review panel gets a *Whiteboard* choice:
+**Whiteboard.** Ferret can draw reviews on [Whiteboard](https://dev.fast), the open-source canvas for explaining code. To connect it:
+1. Install Whiteboard from https://dev.fast/install and open it.
+2. On Whiteboard's welcome screen choose **Connect Claude Code**. This registers Whiteboard's MCP server with Claude Code (user scope). Check with `claude mcp get whiteboard`: it should say *Connected*.
+3. Restart Ferret. It finds that registration in `~/.claude.json` and uses the same server; nothing else to configure. Whiteboard doesn't need to be open: Ferret starts it when it draws.
+
+The Review panel then gets a *Whiteboard* choice:
 - *Draw the findings when done* — Ferret draws the finished review on a Whiteboard canvas pinned to the same PR or commits: a section per severity, each finding as a callout with a code peek on its lines, multi-place paths as flow diagrams.
 - *Explain first* — Claude first writes the Whiteboard for the change (what/why, design diagram, implementation walk, every claim linked to lines), Ferret reads that document back and gives it to the reviewer as the map of the change, and the findings are added to the same Whiteboard. About twice the time and usage of a plain review; best on large or unfamiliar PRs. If a Whiteboard of that PR already exists (e.g. drawn from a chat), it is reused and no explanation pass runs.
 
