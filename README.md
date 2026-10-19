@@ -40,6 +40,34 @@ review-app setup    # installs /ai-review + /apply-review skills, registers the 
 
 Reviews are stored in `~/.review-app/reviews/` (override with `REVIEW_APP_HOME`).
 
+### Send a finding straight into a running chat
+
+The **to** picker next to *Send to Claude* lists every running Claude Code session (any VS Code window or terminal), e.g. `⚡ workflowbuilder-5c · workflowbuilder — auto`. Pick one and Send delivers the finding into that chat directly: Claude there receives it as a message and handles it, no Enter needed. Delivery is done by a tiny headless Claude run (Haiku, a few seconds; override with `REVIEW_APP_MESSENGER_MODEL`). The default "VS Code" option keeps the old behaviour: open the chat with the command pre-filled and you press Enter.
+
+### Let Claude listen for findings you send
+
+Instead of typing `/apply-review` after each **Send to Claude**, ask Claude Code to watch Ferret: "start a Monitor that listens to Ferret". It polls the read-only endpoint `GET http://127.0.0.1:4477/api/sent`, which lists the findings currently waiting for Claude (`{ "actions": [{ reviewId, findingId, severity, title, file, lineStart, message, sentAt }] }`). Filter with `?sessionId=<Claude session id>` (reviews started by `/ai-review` in that session) or `?reviewId=r_…`; with no filter it lists every review, which is what you want for reviews started from **Review ▶** in Ferret.
+
+The Monitor command Claude runs (bash; each printed line becomes a notification in the chat, and Claude then calls `get_pending_actions` and handles it like `/apply-review`):
+
+```sh
+prev=""
+while true; do
+  out=$(curl -s "http://127.0.0.1:4477/api/sent?sessionId=<session id>" || true)
+  cur=$(printf '%s' "$out" | grep -o '"reviewId":"[^"]*","findingId":"[^"]*"' \
+    | sed 's/"reviewId":"\([^"]*\)","findingId":"\([^"]*\)"/\1:\2/')
+  for id in $cur; do
+    case " $prev " in *" $id "*) ;; *) echo "Ferret sent $id — run get_pending_actions";; esac
+  done
+  prev=$(echo $cur)
+  sleep 2
+done
+```
+
+- A finding leaves the list once Claude picks it up (`get_pending_actions` marks it as being fixed), so a finding you send again later is reported again.
+- A Monitor stops after 30 minutes at most; ask Claude to re-arm it, or to stop it with TaskStop.
+- A cron job (`/loop 2m /apply-review`) also works, but wakes Claude every 2 minutes even when nothing was sent; the Monitor only speaks when there is something to do.
+
 ## Review a PR or commit from Ferret
 
 Click **Review ▶** in the header. Ferret runs Claude Code headless (read-only: it can read files and run `git diff/show/log`, nothing else) on the scope you pick and the findings land in a new review:

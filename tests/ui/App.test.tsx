@@ -15,6 +15,8 @@ const api = vi.hoisted(() => ({
   subscribe: vi.fn(),
   fetchClaudeStatus: vi.fn(),
   fetchLatestSession: vi.fn(async () => null),
+  fetchClaudeAgents: vi.fn(async () => ({ agents: [], canDeliver: true })),
+  deliverToAgent: vi.fn(),
   connectClaude: vi.fn(),
   fetchJobs: vi.fn(async () => []),
   cancelJob: vi.fn(),

@@ -10,6 +10,14 @@ export interface LatestSession {
   modifiedAt: string;
 }
 
+/** A running Claude Code session (VS Code or terminal) that can receive cross-session messages. */
+export interface LiveSession {
+  name: string;
+  sessionId: string;
+  cwd: string;
+  status: string; // "idle" | "busy" | …
+}
+
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
 }
@@ -17,6 +25,40 @@ export function claudeHome(): string {
 /** Claude Code's project-folder name: every non-alphanumeric character becomes "-" (case kept as the cwd was given). */
 export function encodeProjectDir(dir: string): string {
   return path.resolve(dir).replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+/** Every live interactive session from ~/.claude/sessions (one registry file per process; stale pids are skipped). */
+export async function listLiveSessions(home = claudeHome()): Promise<LiveSession[]> {
+  const dir = path.join(home, "sessions");
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: LiveSession[] = [];
+  for (const file of names.filter((n) => /^\d+\.json$/.test(n))) {
+    try {
+      const j = JSON.parse(await fs.readFile(path.join(dir, file), "utf8")) as {
+        pid?: number;
+        sessionId?: string;
+        cwd?: string;
+        name?: string;
+        status?: string;
+        kind?: string;
+      };
+      if (j.kind !== "interactive" || !j.name || !j.cwd || !j.sessionId || !j.pid) continue;
+      try {
+        process.kill(j.pid, 0); // throws when the process is gone
+      } catch {
+        continue;
+      }
+      out.push({ name: j.name, sessionId: j.sessionId, cwd: j.cwd, status: j.status ?? "unknown" });
+    } catch {
+      // unreadable registry entry
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function latestSession(dir: string, home = claudeHome()): Promise<LatestSession | null> {

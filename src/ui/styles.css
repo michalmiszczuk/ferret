@@ -268,6 +268,8 @@ textarea::placeholder { color: var(--faint); }
 .btn.fix.on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
 .sev-select { margin-left: auto; color: var(--muted); font-size: 11px; display: flex; gap: 6px; align-items: center; }
 .sev-select select { height: 26px; }
+.send-target { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; min-width: 0; }
+.send-target select { height: 26px; max-width: 280px; }
 
 .btn.connect { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .btn.connect:hover { background: var(--accent-tint); }

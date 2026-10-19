@@ -23,9 +23,15 @@ interface Props {
   presetMessage?: { text: string; n: number };
   onAsk?(i: number): void;
   noteRef: Ref<HTMLTextAreaElement>;
+  targets?: { name: string; cwd: string; status: string; match?: boolean }[];
+  target?: string;
+  onTarget?(t: string): void;
 }
 
-export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdate, onSend, onDraft, drafting, snapshotHint, presetMessage, onAsk, noteRef }: Props) {
+export function CodeView({
+  review, finding, stepIndex, onStep, onSelect, onUpdate, onSend, onDraft, drafting, snapshotHint, presetMessage, onAsk, noteRef,
+  targets, target, onTarget,
+}: Props) {
   const [file, setFile] = useState<FileResponse | null>(null);
   const [tokens, setTokens] = useState<Tok[][] | null>(null);
   const [codeBg, setCodeBg] = useState<string | undefined>(undefined);
@@ -108,6 +114,9 @@ export function CodeView({ review, finding, stepIndex, onStep, onSelect, onUpdat
         snapshotHint={snapshotHint}
         presetMessage={presetMessage}
         noteRef={noteRef}
+        targets={targets}
+        target={target}
+        onTarget={onTarget}
       />
     );
 

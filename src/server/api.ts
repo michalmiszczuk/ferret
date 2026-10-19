@@ -6,7 +6,8 @@ import { originMatches, ownerRepoFromOrigin, parsePrUrl } from "../shared/git-pa
 import { MODEL_ID } from "../shared/models";
 import { findingPatchSchema } from "../shared/schema";
 import type { ClaudeIntegration } from "./claude";
-import { latestSession } from "./claude-sessions";
+import { latestSession, listLiveSessions } from "./claude-sessions";
+import { DeliverError } from "./deliver";
 import { ClickUpError, parseTaskRef, type ClickUpService } from "./clickup";
 import { changedLines, changedLinesBetween, PathError, readRepoFile, reanchor, splitLines } from "./files";
 import { GH_UNAVAILABLE, GithubError, type Github } from "./github";
@@ -29,10 +30,12 @@ export interface ApiOptions {
   saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
   claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
   clickup?: ClickUpService;
+  /** Delivers a message into a running Claude Code session by its agent name (built in index.ts). */
+  deliver?: (agent: string, text: string) => Promise<void>;
 }
 
 export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Router {
-  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup } = opts;
+  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup, deliver } = opts;
   const r = Router();
   r.use(express.json({ limit: "1mb" }));
 
@@ -87,6 +90,32 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
   // Read-only: findings the user clicked "Send to Claude" on that Claude hasn't picked up yet (status
   // fix_requested). A watcher in a Claude session polls this and wakes the chat; it does NOT change state
   // (get_pending_actions does that). Filter by the session that made the review, and optionally by review.
+  // Running Claude Code sessions (VS Code windows / terminals) that can receive a finding directly.
+  r.get(
+    "/claude/agents",
+    wrap(async (_req, res) => res.json({ agents: await listLiveSessions(), canDeliver: Boolean(deliver) })),
+  );
+
+  if (deliver) {
+    r.post(
+      "/claude/deliver",
+      wrap(async (req, res) => {
+        if (!jsonOnly(req, res)) return;
+        const { agent, text } = req.body as { agent?: unknown; text?: unknown };
+        if (typeof agent !== "string" || typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "agent and text required" });
+        const live = await listLiveSessions();
+        if (!live.some((s) => s.name === agent)) return res.status(404).json({ error: `No running Claude session named "${agent}" — refresh the list` });
+        try {
+          await deliver(agent, text);
+          res.json({ ok: true });
+        } catch (err) {
+          if (err instanceof DeliverError) return res.status(502).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+  }
+
   // The chat the user most recently used in a folder (for Send to Claude on reviews that didn't come from a chat).
   r.get(
     "/claude/session",

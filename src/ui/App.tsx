@@ -4,8 +4,9 @@ import { claudeOpenUrl, realValue, vscodeFolderUrl } from "../shared/claude-link
 import { navOrder, toSummary, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
 import {
-  cancelJob, clearReviews, connectClaude, deleteReview, fetchClaudeStatus, fetchExport, fetchJobs, fetchLatestSession, fetchReview, fetchReviews,
-  importReview, NeedsRepo, openInVsCode, patchFinding, saveFile, startDraft, startDraftAll, subscribe,
+  cancelJob, clearReviews, connectClaude, deleteReview, deliverToAgent, fetchClaudeAgents, fetchClaudeStatus, fetchExport, fetchJobs,
+  fetchLatestSession, fetchReview, fetchReviews, importReview, NeedsRepo, openInVsCode, patchFinding, saveFile, startDraft, startDraftAll,
+  subscribe, type LiveAgent,
 } from "./api";
 import { sourceLabel } from "../shared/git-parse";
 import { ClickUpDialog } from "./components/ClickUpDialog";
@@ -51,6 +52,30 @@ export function App() {
   const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set());
   const [clickUpOpen, setClickUpOpen] = useState(false);
   const openedAt = useRef(Date.now());
+
+  // Running Claude sessions a finding can be delivered to directly ("to" picker on the card).
+  const [agents, setAgents] = useState<LiveAgent[]>([]);
+  const [sendTarget, setSendTarget] = useState("vscode");
+  useEffect(() => {
+    fetchClaudeAgents()
+      .then(({ agents: a, canDeliver }) => setAgents(canDeliver ? a : []))
+      .catch(() => setAgents([]));
+  }, [reviewId]);
+  // Sessions working in the review's clone first, tagged "this repo".
+  const sendTargets = useMemo(() => {
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const repo = review ? norm(review.source?.repo ?? review.repoRoot) : "";
+    return agents
+      .map((a) => ({ ...a, match: Boolean(repo) && norm(a.cwd) === repo }))
+      .sort((a, b) => Number(b.match) - Number(a.match) || a.name.localeCompare(b.name));
+  }, [agents, review]);
+  useEffect(() => {
+    // Default = the session already working in this repo; a manual pick survives while it is alive and the review stays open.
+    setSendTarget((cur) => {
+      if (cur !== "vscode" && sendTargets.some((a) => a.name === cur)) return cur;
+      return sendTargets.find((a) => a.match)?.name ?? "vscode";
+    });
+  }, [sendTargets]);
   const [panelOpen, setPanelOpen] = useState(() => new URLSearchParams(location.search).get("panel") === "review");
   const loadJobs = useCallback(() => fetchJobs().then(setJobs).catch(() => {}), []);
   useEffect(() => {
@@ -222,12 +247,25 @@ export function App() {
     [review, showToast],
   );
 
-  /** Sends one finding to Claude with the user's message: saved on the finding, and pre-filled in Claude's prompt. */
+  /** Sends one finding to Claude: directly into a chosen running session, or pre-filled in VS Code. */
   const sendFinding = useCallback(
     async (findingId: string, message: string) => {
       if (!review) return;
       const oneLine = message.replace(/\s+/g, " ").trim();
       const text = `/apply-review ${review.id} ${findingId}${oneLine ? ` ${oneLine}` : ""}`;
+      if (sendTarget !== "vscode") {
+        // Direct delivery: a courier run drops the message into that session; Claude there acts on it.
+        if (!(await update(findingId, { myNote: message, status: "fix_requested" }))) return;
+        showToast(`Delivering to ${sendTarget}…`, 6000);
+        try {
+          await deliverToAgent(sendTarget, `The user sent you a finding from Ferret (review-app). Please handle it now: ${text}`);
+          showToast(`Delivered — ${sendTarget} is on it.`, 6000);
+        } catch (e) {
+          await update(findingId, { status: "open" });
+          showToast(`Delivery failed: ${(e as Error).message.replace(/^\d+ /, "").replace(/^\{"error":"(.*)"\}$/s, "$1")}`, 10000);
+        }
+        return;
+      }
       // Copy first, while this window still has focus: VS Code takes focus next, and if the Claude tab is
       // already open the extension only focuses it (it won't pre-fill), so the user pastes.
       let copied = true;
@@ -266,7 +304,7 @@ export function App() {
         8000,
       );
     },
-    [review, update, showToast],
+    [review, update, showToast, sendTarget],
   );
 
   // Keyboard: j/k move, f fix, d dismiss, n note, Esc leaves the note.
@@ -551,6 +589,9 @@ export function App() {
               presetMessage={presetMessage}
               onAsk={selected.steps?.length ? onAsk : undefined}
               noteRef={noteRef}
+              targets={sendTargets}
+              target={sendTarget}
+              onTarget={setSendTarget}
             />
           ) : (
             <div className="welcome">{review.findings.length === 0 ? "Clean review. No findings 🎉" : "Select a finding."}</div>

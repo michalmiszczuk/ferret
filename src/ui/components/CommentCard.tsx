@@ -22,9 +22,16 @@ interface Props {
   /** Replaces the message box text when it changes (e.g. "Ask about this step"). */
   presetMessage?: { text: string; n: number };
   noteRef?: Ref<HTMLTextAreaElement>;
+  /** Running Claude sessions that can receive the finding directly (plus the manual VS Code option). */
+  targets?: { name: string; cwd: string; status: string; match?: boolean }[];
+  target?: string; // "vscode" or a session name
+  onTarget?(t: string): void;
 }
 
-export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, onDraft, drafting, snapshotHint, presetMessage, noteRef }: Props) {
+export function CommentCard({
+  finding: f, anchor, onUpdate, onSend, onStep, onDraft, drafting, snapshotHint, presetMessage, noteRef, targets, target, onTarget,
+}: Props) {
+  const folderName = (p: string) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
   const [note, setNote] = useState(f.myNote ?? "");
   useEffect(() => setNote(f.myNote ?? ""), [f.id, f.myNote]);
   useEffect(() => {
@@ -148,6 +155,19 @@ export function CommentCard({ finding: f, anchor, onUpdate, onSend, onStep, onDr
           <button className="btn fix" title="Ctrl+Enter" onClick={() => onSend(note)}>
             {f.status === "fix_requested" ? "Send again ▶" : "Send to Claude ▶"}
           </button>
+        )}
+        {actionable && targets && targets.length > 0 && onTarget && (
+          <span className="send-target">
+            <label htmlFor={`target-${f.id}`}>to</label>
+            <select id={`target-${f.id}`} value={target ?? "vscode"} onChange={(e) => onTarget(e.target.value)} title="Where the finding goes">
+              <option value="vscode">VS Code (opens the chat, you press Enter)</option>
+              {targets.map((t) => (
+                <option key={t.name} value={t.name}>
+                  ⚡ {t.name} · {t.match ? "this repo" : folderName(t.cwd)}{t.status === "busy" ? " · busy" : ""} — auto
+                </option>
+              ))}
+            </select>
+          </span>
         )}
         {f.status === "fix_requested" && <span className="muted sent">Sent, waiting for Claude</span>}
         {actionable && (

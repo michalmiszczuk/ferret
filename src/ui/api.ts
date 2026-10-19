@@ -58,6 +58,21 @@ export const sendToClickUp = (reviewId: string, task: string) =>
     body: JSON.stringify({ task }),
   }).then((r) => json<{ taskId: string; taskName: string; url: string }>(r));
 
+// ---- running Claude sessions (direct delivery) ----
+export interface LiveAgent {
+  name: string;
+  sessionId: string;
+  cwd: string;
+  status: string;
+}
+export const fetchClaudeAgents = () => fetch("/api/claude/agents").then((r) => json<{ agents: LiveAgent[]; canDeliver: boolean }>(r));
+export const deliverToAgent = (agent: string, text: string) =>
+  fetch("/api/claude/deliver", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent, text }),
+  }).then((r) => json<{ ok: true }>(r));
+
 /** The Claude Code chat most recently used in that folder (null when there is none). */
 export const fetchLatestSession = (dir: string) =>
   fetch(`/api/claude/session?dir=${enc(dir)}`).then((r) => json<{ sessionId: string; modifiedAt: string } | null>(r));
