@@ -354,29 +354,32 @@ textarea::placeholder { color: var(--faint); }
 /* The digging-ferret loader: scene in a circle, spinner ring around it. */
 .digger { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--raised); overflow: hidden; }
 .digger::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: spin 1.1s linear infinite; }
-.dig-ferret { transform-origin: 28px 33px; animation: dig-bob 0.5s ease-in-out infinite; }
-@keyframes dig-bob { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(6deg) translateY(1px); } }
-.dig-tail { transform-origin: 14px 27px; animation: dig-wag 0.5s ease-in-out infinite; }
-@keyframes dig-wag { 0%, 100% { transform: rotate(-16deg); } 50% { transform: rotate(18deg); } }
-.dig-leg { transform-origin: 16.5px 30px; animation: dig-kick 0.5s ease-in-out infinite; }
-@keyframes dig-kick { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(10deg); } }
+.dig-ferret { transform-origin: 33px 29px; animation: dig-bob 0.5s ease-in-out infinite; }
+@keyframes dig-bob { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg) translateY(1px); } }
+.dig-tail { transform-origin: 10px 21px; animation: dig-wag 0.5s ease-in-out infinite; }
+@keyframes dig-wag { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(16deg); } }
+.dig-leg { transform-origin: 29.5px 26.5px; animation: dig-kick 0.5s ease-in-out infinite; }
+@keyframes dig-kick { 0%, 100% { transform: rotate(-22deg); } 50% { transform: rotate(14deg); } }
 /* Two arc paths so the spill looks scattered, staggered starts so it never stops. */
-.dig-dirt circle { fill: #b59876; opacity: 0; }
-.dig-dirt .d1 { animation: dirt-fly-a 0.7s linear infinite; }
-.dig-dirt .d2 { animation: dirt-fly-b 0.7s linear 0.18s infinite; }
-.dig-dirt .d3 { animation: dirt-fly-a 0.7s linear 0.36s infinite; }
-.dig-dirt .d4 { animation: dirt-fly-b 0.7s linear 0.5s infinite; }
+.dig-dirt circle { opacity: 0; }
+.dig-dirt .d1 { animation: dirt-fly-a 0.9s linear infinite; }
+.dig-dirt .d2 { animation: dirt-fly-b 0.9s linear 0.22s infinite; }
+.dig-dirt .d3 { animation: dirt-fly-a 0.9s linear 0.45s infinite; }
+.dig-dirt .d4 { animation: dirt-fly-b 0.9s linear 0.67s infinite; }
+/* High arcs: up over the ferret's back, then down behind its tail. */
 @keyframes dirt-fly-a {
   0% { opacity: 0; transform: translate(0, 0); }
-  12% { opacity: 1; }
-  55% { transform: translate(-9px, -12px); }
-  100% { opacity: 0; transform: translate(-16px, -7px); }
+  10% { opacity: 1; }
+  50% { transform: translate(-12px, -22px); }
+  90% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-26px, -10px); }
 }
 @keyframes dirt-fly-b {
   0% { opacity: 0; transform: translate(0, 0); }
-  12% { opacity: 1; }
-  55% { transform: translate(-6px, -14px); }
-  100% { opacity: 0; transform: translate(-12px, -10px); }
+  10% { opacity: 1; }
+  50% { transform: translate(-7px, -25px); }
+  90% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-20px, -14px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .digger::after, .dig-ferret, .dig-tail, .dig-leg, .dig-dirt circle, .spinner { animation: none; }
@@ -402,6 +405,8 @@ textarea::placeholder { color: var(--faint); }
 .small { font-size: 11px; }
 .pick-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
 .list-filter { width: 100%; margin-top: 8px; }
+.check-row { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; cursor: pointer; }
+.check-row input { margin-top: 3px; }
 .pick { display: flex; flex-direction: column; width: 100%; text-align: left; padding: 6px 10px; background: none; border: 0; border-bottom: 1px solid var(--border); color: var(--text); cursor: pointer; font: inherit; }
 .pick:last-child { border-bottom: 0; }
 .pick:hover { background: var(--raised); }

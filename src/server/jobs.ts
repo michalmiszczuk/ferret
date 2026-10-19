@@ -10,7 +10,7 @@ export type Job = Omit<WireJob, "scope"> & { scope?: ScopeInput };
 import type { Finding, Review } from "../shared/schema";
 import { runClaude as defaultRunClaude, type RunHandle, type RunOptions } from "./claude-runner";
 import { readRepoFile, reanchor, splitLines } from "./files";
-import { buildDraftRun, buildReviewRun, REVIEW_MODEL } from "./prompts";
+import { buildDraftRun, buildExplainRun, buildReviewRun, REVIEW_MODEL } from "./prompts";
 import {
   diffPatch,
   resolveScope as defaultResolveScope,
@@ -20,6 +20,7 @@ import {
   type ScopeInput,
 } from "./scope";
 import { NotFoundError, type ReviewStore } from "./store";
+import type { WhiteboardService } from "./whiteboard";
 
 /** Read through a function so TypeScript doesn't narrow `job.status` after an assignment above. */
 const isCancelled = (job: Job): boolean => job.status === "cancelled";
@@ -34,6 +35,8 @@ export interface JobManagerDeps {
   prInfo?: PrInfoFn;
   claudePath?: string;
   log?: (msg: string) => void;
+  /** Whiteboard: explain-first pass and drawing the finished review, when the job asked for it. */
+  whiteboard?: WhiteboardService;
 }
 
 const HISTORY = 100;
@@ -156,8 +159,8 @@ export class JobManager extends EventEmitter {
 
   // ---- starting jobs ----
 
-  startReview(input: ScopeInput, model?: string): Job {
-    const job = this.add({ kind: "review", label: labelFor(input), scope: input, model: model ?? REVIEW_MODEL });
+  startReview(input: ScopeInput, model?: string, opts: { whiteboard?: Job["whiteboard"] } = {}): Job {
+    const job = this.add({ kind: "review", label: labelFor(input), scope: input, model: model ?? REVIEW_MODEL, whiteboard: opts.whiteboard || undefined });
     void this.pumpReviews();
     return job;
   }
@@ -304,6 +307,47 @@ export class JobManager extends EventEmitter {
         return this.finish(job, "failed", `Could not produce the diff: ${(err as Error).message}`);
       }
     }
+    // "Explain first": Claude writes the Whiteboard document for the change, and the review reads it as its map.
+    let wbSessionId: string | undefined;
+    let context: string | undefined;
+    const wb = this.deps.whiteboard;
+    if (job.whiteboard === "explain" && wb) {
+      job.phase = "Explaining on Whiteboard";
+      job.progress = "Looking for an existing Whiteboard of this change";
+      this.touch(job);
+      try {
+        const target = { source: scope.source, repoRoot: scope.checkout, scopeKind: "files" as const };
+        wbSessionId = await wb.findExisting(target);
+        if (wbSessionId) {
+          job.progress = "Reusing the Whiteboard that already exists for this change";
+          this.touch(job);
+        } else {
+          const server = await wb.mcpServer();
+          if (!server) throw new Error("Whiteboard isn't connected to Claude Code");
+          wbSessionId = await wb.createSession(target, scope.label, true);
+          job.progress = "Claude is drawing the explanation";
+          this.touch(job);
+          const explain = await this.execute(
+            job,
+            buildExplainRun(scope, wbSessionId, { sandboxDir: this.sandboxDir, claudePath: this.deps.claudePath, diffFile, model: job.model, whiteboardServer: server }),
+          );
+          if (isCancelled(job) || explain.cancelled) {
+            if (diffFile) await fs.rm(diffFile, { force: true }).catch(() => {});
+            return this.finish(job, "cancelled");
+          }
+          if (!explain.ok) job.note = `Whiteboard explanation did not finish: ${(explain.resultText || explain.logTail[explain.logTail.length - 1] || "").slice(0, 160)}`;
+        }
+        job.progress = "Reading the explanation back";
+        this.touch(job);
+        context = await wb.readOutline(wbSessionId);
+      } catch (err) {
+        job.note = `Whiteboard: ${(err as Error).message.slice(0, 200)}`;
+      }
+      job.phase = `Reviewing ${scope.changedFiles.length} changed file${scope.changedFiles.length === 1 ? "" : "s"}`;
+      job.progress = context ? "Starting Claude with the explanation as its map" : "Starting Claude";
+      this.touch(job);
+    }
+
     const run = buildReviewRun(scope, job.id, {
       rules: this.deps.rules,
       mcpUrl: this.deps.mcpUrl,
@@ -311,6 +355,7 @@ export class JobManager extends EventEmitter {
       claudePath: this.deps.claudePath,
       diffFile,
       model: job.model,
+      context,
     });
     let result;
     try {
@@ -342,6 +387,18 @@ export class JobManager extends EventEmitter {
       );
       job.reviewId = review.id;
       job.note = "Claude found nothing to report.";
+    }
+    if (job.whiteboard && job.reviewId && wb) {
+      job.phase = "Drawing on Whiteboard";
+      job.progress = wbSessionId ? "Adding the findings to the Whiteboard" : "Creating the Whiteboard review";
+      this.touch(job);
+      try {
+        const review = this.requireReview(job.reviewId);
+        const { sessionId } = await wb.publish(review, wbSessionId);
+        await this.deps.store.setWhiteboard(review.id, { sessionId, at: new Date().toISOString() });
+      } catch (err) {
+        job.note = `${job.note ? `${job.note} ` : ""}Whiteboard: ${(err as Error).message}`;
+      }
     }
     this.finish(job, "done");
   }

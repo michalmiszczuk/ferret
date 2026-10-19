@@ -31,8 +31,8 @@ export function skillRules(skillText: string): string {
   return skillText.slice(start, end === -1 ? undefined : end).trim();
 }
 
-export function buildReviewPrompt(a: { scope: ResolvedScope; jobId: string; rules: string; diffFile?: string }): string {
-  const { scope, jobId, rules, diffFile } = a;
+export function buildReviewPrompt(a: { scope: ResolvedScope; jobId: string; rules: string; diffFile?: string; context?: string }): string {
+  const { scope, jobId, rules, diffFile, context } = a;
   const where = scope.isWorktree
     ? `The reviewed code is a detached snapshot at ${scope.checkout} (not the user's working copy). Read files from that folder with Read/Grep/Glob; shell commands are not available in this run.`
     : `The working directory is the repository checkout (${scope.checkout}).`;
@@ -54,6 +54,16 @@ export function buildReviewPrompt(a: { scope: ResolvedScope; jobId: string; rule
     "Changed files:",
     files,
     "",
+    ...(context
+      ? [
+          "## How this change works",
+          "",
+          "An explanation of this change was drawn on Whiteboard before this review (what/why, design, implementation walk; `review-source:` links point at repository lines). Use it as the map of the change: start from its entry points and flows, and build multi-place `steps` along them. Verify its claims against the code; it is context, not evidence.",
+          "",
+          context,
+          "",
+        ]
+      : []),
     "## Submit",
     "",
     `When done, call \`submit_review\` exactly once with: \`repoRoot: "${scope.checkout.replace(/\\/g, "/")}"\`, \`scope: { "kind": "files", "target": [<the changed files you reviewed>] }\`, \`jobId: "${jobId}"\`, a one-paragraph \`summary\`, and all \`findings\` (file paths relative to repoRoot, forward slashes). If you found nothing worth reporting, still call it with an empty \`findings\` list and say so in \`summary\`.`,
@@ -93,10 +103,10 @@ export function buildDraftPrompt(a: { finding: Finding; review: Review; excerpt:
 export function buildReviewRun(
   scope: ResolvedScope,
   jobId: string,
-  deps: { rules: string; mcpUrl: string; sandboxDir: string; claudePath?: string; diffFile?: string; model?: string },
+  deps: { rules: string; mcpUrl: string; sandboxDir: string; claudePath?: string; diffFile?: string; model?: string; context?: string },
 ): RunOptions {
   return {
-    prompt: buildReviewPrompt({ scope, jobId, rules: deps.rules, diffFile: deps.diffFile }),
+    prompt: buildReviewPrompt({ scope, jobId, rules: deps.rules, diffFile: deps.diffFile, context: deps.context }),
     // Worktree scopes run from a neutral folder so a PR branch's CLAUDE.md / hooks are never loaded.
     cwd: scope.isWorktree ? deps.sandboxDir : scope.checkout,
     addDirs: scope.isWorktree ? [scope.checkout] : undefined,
@@ -104,6 +114,46 @@ export function buildReviewRun(
     mcp: { name: "review-app", url: deps.mcpUrl },
     outputFormat: "stream-json",
     timeoutMs: REVIEW_TIMEOUT_MS,
+    model: deps.model ?? REVIEW_MODEL,
+    claudePath: deps.claudePath,
+  };
+}
+
+/** The "explain first" pass: Claude writes the Whiteboard document for the change before the review runs. */
+export const EXPLAIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+export function buildExplainPrompt(a: { scope: ResolvedScope; sessionId: string; diffFile?: string }): string {
+  const { scope, sessionId, diffFile } = a;
+  const s = scope.source;
+  const pinned = s.base ? `\`${s.base}..${s.head}\`` : `\`${s.head}\``;
+  return [
+    `Write the Whiteboard for this change. A Whiteboard review already exists for it: sessionId \`${sessionId}\`, pinned to ${pinned} in \`${s.repo.replace(/\\/g, "/")}\` (${scope.label}). Do NOT call session_create; write into that session.`,
+    "",
+    "First call `session_get_instructions({topic:\"authoring\"})` and follow it, with these adjustments:",
+    "- skip the file-lenses subagent step entirely",
+    `- the code is at \`${scope.checkout.replace(/\\/g, "/")}\`${scope.isWorktree ? " (a detached snapshot; read files there with Read/Grep/Glob — no shell in this run)" : ""}; anchors stay repository-relative`,
+    diffFile ? `- the full diff is already in the file \`${diffFile.replace(/\\/g, "/")}\`: Read it instead of running git` : `- get the diff with: \`${scope.diffCommand}\``,
+    "- keep it compact: what/why, design with one diagram, implementation walk with code peeks on the mechanism; omit sections the change does not need",
+    "- this document will be read by a code reviewer next: make the entry points, data flow and invariants explicit, and link every claim to lines",
+    "",
+    "Begin an activity, write incrementally, end the activity when done, then reply with one word: done.",
+  ].join("\n");
+}
+
+export function buildExplainRun(
+  scope: ResolvedScope,
+  sessionId: string,
+  deps: { sandboxDir: string; claudePath?: string; diffFile?: string; model?: string; whiteboardServer: Record<string, unknown> },
+): RunOptions {
+  const tools = ["Read", "Grep", "Glob", "mcp__whiteboard__*", ...(scope.isWorktree ? [] : ["Bash(git diff *)", "Bash(git show *)", "Bash(git log *)"])];
+  return {
+    prompt: buildExplainPrompt({ scope, sessionId, diffFile: deps.diffFile }),
+    cwd: scope.isWorktree ? deps.sandboxDir : scope.checkout,
+    addDirs: scope.isWorktree ? [scope.checkout] : undefined,
+    allowedTools: tools,
+    mcpServers: { whiteboard: deps.whiteboardServer },
+    outputFormat: "stream-json",
+    timeoutMs: EXPLAIN_TIMEOUT_MS,
     model: deps.model ?? REVIEW_MODEL,
     claudePath: deps.claudePath,
   };

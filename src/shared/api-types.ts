@@ -33,6 +33,8 @@ export interface Job {
   findingId?: string;
   /** Model id the job runs on (reviews). */
   model?: string;
+  /** Whiteboard: "draw" = draw the findings when done; "explain" = Claude explains the change on Whiteboard first, the review uses it as its map, findings are added to the same document. */
+  whiteboard?: "draw" | "explain";
   /** The latest activity line (what Claude is doing right now). */
   progress?: string;
   /** Coarse stage of a review job: "Fetching the pull request", "Preparing the snapshot", "Reviewing", "Submitting". */

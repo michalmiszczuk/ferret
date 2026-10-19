@@ -5,8 +5,8 @@ import { navOrder, toSummary, type Filters } from "../shared/findings";
 import { SEVERITIES, type FindingPatch, type Review } from "../shared/schema";
 import {
   cancelJob, clearReviews, connectClaude, deleteReview, deliverToAgent, fetchClaudeAgents, fetchClaudeStatus, fetchExport, fetchJobs,
-  fetchLatestSession, fetchReview, fetchReviews, importReview, NeedsRepo, openInVsCode, patchFinding, saveFile, startDraft, startDraftAll,
-  subscribe, type LiveAgent,
+  fetchLatestSession, fetchReview, fetchReviews, fetchWhiteboardStatus, importReview, NeedsRepo, openInVsCode, openInWhiteboard, patchFinding,
+  saveFile, startDraft, startDraftAll, subscribe, type LiveAgent,
 } from "./api";
 import { sourceLabel } from "../shared/git-parse";
 import { ClickUpDialog } from "./components/ClickUpDialog";
@@ -52,6 +52,24 @@ export function App() {
   const [dismissedJobs, setDismissedJobs] = useState<Set<string>>(new Set());
   const [clickUpOpen, setClickUpOpen] = useState(false);
   const openedAt = useRef(Date.now());
+
+  // Whiteboard (dev.fast): draw the review's findings on its canvas.
+  const [whiteboardAvailable, setWhiteboardAvailable] = useState(false);
+  useEffect(() => {
+    fetchWhiteboardStatus()
+      .then((s) => setWhiteboardAvailable(s.registered))
+      .catch(() => setWhiteboardAvailable(false));
+  }, []);
+  const onWhiteboard = useCallback(
+    (redraw: boolean) => {
+      if (!review) return;
+      showToast(redraw ? "Redrawing on Whiteboard…" : review.whiteboard ? "Opening in Whiteboard…" : "Drawing on Whiteboard…", 8000);
+      openInWhiteboard(review.id, redraw)
+        .then(() => showToast(review.whiteboard && !redraw ? "Opened in Whiteboard." : "Drawn on Whiteboard — it should be open now.", 5000))
+        .catch((e: Error) => showToast(`Whiteboard: ${e.message.replace(/^\d+ /, "").replace(/^\{"error":"(.*)"\}$/s, "$1")}`, 10000));
+    },
+    [review, showToast],
+  );
 
   // Running Claude sessions a finding can be delivered to directly ("to" picker on the card).
   const [agents, setAgents] = useState<LiveAgent[]>([]);
@@ -494,6 +512,7 @@ export function App() {
         onCopyMarkdown={() => void onCopyMarkdown()}
         onSaveMarkdown={() => void onSaveMarkdown()}
         onSendClickUp={() => review && setClickUpOpen(true)}
+        onWhiteboard={whiteboardAvailable ? onWhiteboard : undefined}
         onImportFile={onImportFile}
       />
       {review && (

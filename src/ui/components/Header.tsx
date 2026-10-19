@@ -22,6 +22,7 @@ interface Props {
   onCopyMarkdown(): void;
   onSaveMarkdown(): void;
   onSendClickUp(): void;
+  onWhiteboard?(redraw: boolean): void;
   onImportFile(file: File): void;
 }
 
@@ -42,7 +43,7 @@ export function ConnectButton({
 
 export function Header({
   reviews, review, onSwitch, claude, connecting, onConnect, onDelete, onClearAll, onReview,
-  onDraftAll, draftingAll, onCopyMarkdown, onSaveMarkdown, onSendClickUp, onImportFile,
+  onDraftAll, draftingAll, onCopyMarkdown, onSaveMarkdown, onSendClickUp, onWhiteboard, onImportFile,
 }: Props) {
   return (
     <header className="header">
@@ -80,6 +81,8 @@ export function Header({
         onCopyMarkdown={onCopyMarkdown}
         onSaveMarkdown={onSaveMarkdown}
         onSendClickUp={onSendClickUp}
+        onWhiteboard={onWhiteboard}
+        whiteboardDrawn={Boolean(review?.whiteboard)}
         onImportFile={onImportFile}
       />
       {review && (

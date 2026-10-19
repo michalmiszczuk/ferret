@@ -84,6 +84,12 @@ Reviews run one at a time; cards above the findings list show progress and let y
 
 **Send to ClickUp.** **Export ▾** → *Send to ClickUp…* sends the review to a teammate: search the people in your Workspace, pick one, pick a task to hold the file (usually the PR's task — ClickUp's API only uploads files to tasks, not to chat), and Ferret attaches the .md there, posts a summary comment on the task, and DMs the person your editable message with a link to it. The *Task* tab does just the attach + comment, no DM. The last five people/tasks are remembered. Needs your personal API token once (ClickUp → Settings → Apps → API Token); it is stored in `~/.review-app/clickup.json` and never leaves your machine except to api.clickup.com.
 
+**Whiteboard.** With [Whiteboard](https://dev.fast) installed and connected to Claude Code, the Review panel gets a *Whiteboard* choice:
+- *Draw the findings when done* — Ferret draws the finished review on a Whiteboard canvas pinned to the same PR or commits: a section per severity, each finding as a callout with a code peek on its lines, multi-place paths as flow diagrams.
+- *Explain first* — Claude first writes the Whiteboard for the change (what/why, design diagram, implementation walk, every claim linked to lines), Ferret reads that document back and gives it to the reviewer as the map of the change, and the findings are added to the same Whiteboard. About twice the time and usage of a plain review; best on large or unfamiliar PRs. If a Whiteboard of that PR already exists (e.g. drawn from a chat), it is reused and no explanation pass runs.
+
+**Export ▾ → Draw on Whiteboard / Open / Redraw** works for any review (redraw after triage to carry over dismissals). Ferret talks to Whiteboard through its MCP server, using the registration in `~/.claude.json`.
+
 **Snapshots.** PRs and older commits are checked out into Ferret-owned git worktrees under `~/.review-app/worktrees/` (`git worktree add --detach`). Your own checkout is never touched, but your repo's `.git/worktrees/` gains an entry per snapshot; Ferret removes the snapshot when its last review is deleted and sweeps unused ones at startup. Headless runs on a snapshot use `~/.review-app/sandbox` as the working directory, so a PR's own `CLAUDE.md` and hooks are never loaded.
 
 Models: `opus` for reviews, `sonnet` for drafts; override with `REVIEW_APP_MODEL` / `REVIEW_APP_DRAFT_MODEL`. `REVIEW_APP_CLAUDE` points at a different `claude` executable.

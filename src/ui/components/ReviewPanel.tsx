@@ -12,7 +12,12 @@ function savedModel(): string {
     return DEFAULT_REVIEW_MODEL;
   }
 }
-import { fetchCommits, fetchEnv, fetchPrs, fetchRepoInfo, fetchRepos, NeedsRepo, pickFolder, startJob, type RepoInfo, type StartJobScope } from "../api";
+import {
+  fetchCommits, fetchEnv, fetchPrs, fetchRepoInfo, fetchRepos, fetchWhiteboardStatus, NeedsRepo, pickFolder, startJob,
+  type RepoInfo, type StartJobScope, type WhiteboardMode, type WhiteboardStatus,
+} from "../api";
+
+const WB_KEY = "ferret.whiteboard";
 
 type Tab = "pr" | "commit" | "changes";
 
@@ -48,6 +53,23 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
   const [base, setBase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wb, setWb] = useState<WhiteboardStatus | null>(null);
+  const [whiteboard, setWhiteboardState] = useState<WhiteboardMode>(() => {
+    try {
+      const v = localStorage.getItem(WB_KEY);
+      return v === "draw" || v === "explain" ? v : "off";
+    } catch {
+      return "off";
+    }
+  });
+  const setWhiteboard = (mode: WhiteboardMode) => {
+    setWhiteboardState(mode);
+    try {
+      localStorage.setItem(WB_KEY, mode);
+    } catch {
+      // session only
+    }
+  };
   const [model, setModelState] = useState(savedModel);
   const setModel = (m: string) => {
     setModelState(m);
@@ -63,6 +85,7 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
     if (!open) return;
     setError(null);
     fetchEnv().then(setEnv).catch(() => setEnv(null));
+    fetchWhiteboardStatus().then(setWb).catch(() => setWb(null));
     fetchRepos()
       .then(({ repos }) => {
         const list = needsRepo?.candidates.length ? [...new Set([...needsRepo.candidates, ...repos])] : repos;
@@ -169,7 +192,7 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const job = await startJob(scope, model);
+      const job = await startJob(scope, model, wb?.registered ? whiteboard : "off");
       onStarted(job);
     } catch (e) {
       if (e instanceof NeedsRepo) {
@@ -387,6 +410,20 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
               </select>
               {cliTooOld && <p className="warn">{cliTooOld}</p>}
             </div>
+            {wb?.registered && (
+              <div className="field">
+                <label className="label" htmlFor="review-wb">Whiteboard</label>
+                <select id="review-wb" value={whiteboard} onChange={(e) => setWhiteboard(e.target.value as WhiteboardMode)}>
+                  <option value="off">Off · review in Ferret only</option>
+                  <option value="draw">Draw the findings on Whiteboard when done</option>
+                  <option value="explain">Explain first · Claude draws the change on Whiteboard, then reviews with that map (≈2× time)</option>
+                </select>
+                {whiteboard !== "off" && !wb.running && <p className="muted small">Whiteboard isn't running now; Ferret will start it.</p>}
+                {whiteboard === "explain" && (
+                  <p className="muted small">If a Whiteboard of this PR already exists it is reused and no explanation pass runs.</p>
+                )}
+              </div>
+            )}
             <div className="actions">
               <button className="btn fix" disabled={!scope || busy || Boolean(claudeMissing) || Boolean(cliTooOld)} onClick={start}>
                 {busy ? "Starting…" : "Start review"}

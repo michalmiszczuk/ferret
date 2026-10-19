@@ -123,6 +123,8 @@ export const reviewSchema = z.object({
   source: reviewSourceSchema.optional(),
   jobId: z.string().optional(),
   imported: z.object({ by: z.string().optional(), at: z.string() }).optional(),
+  /** Set once the review was drawn on a Whiteboard (dev.fast) canvas. */
+  whiteboard: z.object({ sessionId: z.string(), at: z.string() }).optional(),
   findings: z.array(findingSchema),
 });
 export type Review = z.infer<typeof reviewSchema>;

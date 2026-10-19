@@ -8,6 +8,7 @@ import { createApiRouter } from "./api";
 import type { ClaudeIntegration } from "./claude";
 import { createClickUp, type ClickUpService } from "./clickup";
 import { deliverToSession } from "./deliver";
+import { createWhiteboard, type WhiteboardService } from "./whiteboard";
 import { createGithub, type Github } from "./github";
 import { JobManager } from "./jobs";
 import { mountMcp } from "./mcp";
@@ -43,6 +44,7 @@ export interface ServerOptions {
   claudePath?: string;
   github?: Github;
   clickup?: ClickUpService;
+  whiteboard?: WhiteboardService;
   pickFolder?: () => Promise<string | null>;
   saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
   claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
@@ -61,6 +63,7 @@ export function createApp(opts: {
   claudeInstalled?: ServerOptions["claudeInstalled"];
   clickup?: ClickUpService;
   deliver?: (agent: string, text: string) => Promise<void>;
+  whiteboard?: WhiteboardService;
 }): express.Express {
   const app = express();
   app.disable("x-powered-by");
@@ -77,6 +80,7 @@ export function createApp(opts: {
       claudeInstalled: opts.claudeInstalled,
       clickup: opts.clickup,
       deliver: opts.deliver,
+      whiteboard: opts.whiteboard,
     }),
   );
   mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`, {
@@ -121,6 +125,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     }
   }
   const github = opts.github ?? createGithub();
+  const whiteboard = opts.whiteboard ?? createWhiteboard({ log });
   const jobs = new JobManager({
     store,
     home,
@@ -129,6 +134,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     prInfo: (repo, n) => github.prInfo(repo, n),
     claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE,
     log,
+    whiteboard,
   });
   await jobs.load();
   await jobs.sweepWorktrees(); // jobs from a previous run were just marked cancelled, so only reviews hold worktrees now
@@ -147,6 +153,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     clickup: opts.clickup ?? createClickUp(path.join(home, "clickup.json")),
     deliver: (agent, text) =>
       deliverToSession(agent, text, { sandboxDir: jobs.sandboxDir, claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE }),
+    whiteboard,
   });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));

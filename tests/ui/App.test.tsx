@@ -16,6 +16,8 @@ const api = vi.hoisted(() => ({
   fetchClaudeStatus: vi.fn(),
   fetchLatestSession: vi.fn(async () => null),
   fetchClaudeAgents: vi.fn(async () => ({ agents: [], canDeliver: true })),
+  fetchWhiteboardStatus: vi.fn(async () => ({ registered: false, running: false })),
+  openInWhiteboard: vi.fn(),
   deliverToAgent: vi.fn(),
   connectClaude: vi.fn(),
   fetchJobs: vi.fn(async () => []),

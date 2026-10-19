@@ -10,6 +10,8 @@ export interface RunOptions {
   addDirs?: string[];
   allowedTools: string[];
   mcp?: { name: string; url: string };
+  /** Full mcpServers map (stdio or http); takes precedence over `mcp`. */
+  mcpServers?: Record<string, unknown>;
   outputFormat: "stream-json" | "json";
   timeoutMs: number;
   /** Model alias or id passed as --model (the user's interactive default may not be usable headless). */
@@ -51,7 +53,9 @@ export function buildClaudeArgs(o: RunOptions): string[] {
     "user",
     "--strict-mcp-config",
   ];
-  if (o.mcp) {
+  if (o.mcpServers) {
+    args.push("--mcp-config", JSON.stringify({ mcpServers: o.mcpServers }));
+  } else if (o.mcp) {
     args.push("--mcp-config", JSON.stringify({ mcpServers: { [o.mcp.name]: { type: "http", url: o.mcp.url } } }));
   }
   return args;

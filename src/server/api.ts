@@ -8,6 +8,7 @@ import { findingPatchSchema } from "../shared/schema";
 import type { ClaudeIntegration } from "./claude";
 import { latestSession, listLiveSessions } from "./claude-sessions";
 import { DeliverError } from "./deliver";
+import { WhiteboardError, type WhiteboardService } from "./whiteboard";
 import { ClickUpError, parseTaskRef, type ClickUpService } from "./clickup";
 import { changedLines, changedLinesBetween, PathError, readRepoFile, reanchor, splitLines } from "./files";
 import { GH_UNAVAILABLE, GithubError, type Github } from "./github";
@@ -32,10 +33,11 @@ export interface ApiOptions {
   clickup?: ClickUpService;
   /** Delivers a message into a running Claude Code session by its agent name (built in index.ts). */
   deliver?: (agent: string, text: string) => Promise<void>;
+  whiteboard?: WhiteboardService;
 }
 
 export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Router {
-  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup, deliver } = opts;
+  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup, deliver, whiteboard } = opts;
   const r = Router();
   r.use(express.json({ limit: "1mb" }));
 
@@ -90,6 +92,36 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
   // Read-only: findings the user clicked "Send to Claude" on that Claude hasn't picked up yet (status
   // fix_requested). A watcher in a Claude session polls this and wakes the chat; it does NOT change state
   // (get_pending_actions does that). Filter by the session that made the review, and optionally by review.
+  if (whiteboard) {
+    const wb = whiteboard;
+    r.get(
+      "/whiteboard/status",
+      wrap(async (_req, res) => res.json(await wb.status())),
+    );
+    // Draw (or re-draw) a review on Whiteboard and open it there.
+    r.post(
+      "/reviews/:id/whiteboard",
+      wrap(async (req, res) => {
+        if (!jsonOnly(req, res)) return;
+        const review = store.get(req.params.id);
+        if (!review) return res.status(404).json({ error: "Review not found" });
+        const redraw = Boolean((req.body as { redraw?: boolean }).redraw);
+        try {
+          if (review.whiteboard && !redraw) {
+            await wb.open(review.whiteboard.sessionId);
+            return res.json({ sessionId: review.whiteboard.sessionId, opened: true });
+          }
+          const { sessionId } = await wb.publish(review);
+          await store.setWhiteboard(review.id, { sessionId, at: new Date().toISOString() });
+          res.json({ sessionId, opened: true });
+        } catch (err) {
+          if (err instanceof WhiteboardError) return res.status(502).json({ error: err.message });
+          throw err;
+        }
+      }),
+    );
+  }
+
   // Running Claude Code sessions (VS Code windows / terminals) that can receive a finding directly.
   r.get(
     "/claude/agents",
@@ -391,7 +423,7 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
           input = scope;
         }
         if (!(await isGitRepo(input.repo))) return res.status(400).json({ error: `not a git repo: ${input.repo}` });
-        res.status(201).json(jobsRef.startReview(input, parsed.data.model));
+        res.status(201).json(jobsRef.startReview(input, parsed.data.model, { whiteboard: parsed.data.whiteboard }));
       }),
     );
 
@@ -606,4 +638,5 @@ const startJobSchema = z.object({
     z.object({ type: z.literal("pr"), repo: repoField.optional(), number: z.number().int().positive().optional(), url: z.string().min(1).optional(), host: z.literal("github").optional() }),
   ]),
   model: z.string().regex(MODEL_ID, "invalid model id").optional(),
+  whiteboard: z.enum(["draw", "explain"]).optional(),
 });

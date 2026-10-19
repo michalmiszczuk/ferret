@@ -108,6 +108,13 @@ export class ReviewStore extends EventEmitter {
     return finding;
   }
 
+  async setWhiteboard(reviewId: string, info: { sessionId: string; at: string }): Promise<void> {
+    const review = this.requireReview(reviewId);
+    review.whiteboard = info;
+    await this.persist(review);
+    this.emitChange({ type: "review-updated", reviewId });
+  }
+
   async takePending(reviewId?: string, findingIds?: string[]): Promise<{ review: Review; findings: Finding[] }> {
     const review = reviewId ? this.requireReview(reviewId) : this.latest();
     if (!review) throw new NotFoundError("No reviews yet. Run /ai-review first.");

@@ -142,8 +142,27 @@ export class NeedsRepo extends Error {
     super(`Pick the local clone of ${ownerRepo}`);
   }
 }
-export async function startJob(scope: StartJobScope, model?: string): Promise<Job> {
-  const r = await fetch("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "review", scope, ...(model ? { model } : {}) }) });
+export interface WhiteboardStatus {
+  registered: boolean;
+  running: boolean;
+  url?: string;
+  error?: string;
+}
+export const fetchWhiteboardStatus = () => fetch("/api/whiteboard/status").then((r) => json<WhiteboardStatus>(r));
+export const openInWhiteboard = (reviewId: string, redraw = false) =>
+  fetch(`/api/reviews/${enc(reviewId)}/whiteboard`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ redraw }),
+  }).then((r) => json<{ sessionId: string; opened: boolean }>(r));
+
+export type WhiteboardMode = "off" | "draw" | "explain";
+export async function startJob(scope: StartJobScope, model?: string, whiteboard: WhiteboardMode = "off"): Promise<Job> {
+  const r = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "review", scope, ...(model ? { model } : {}), ...(whiteboard !== "off" ? { whiteboard } : {}) }),
+  });
   if (r.status === 409) {
     const b = (await r.json()) as { needsRepo: { ownerRepo: string; candidates: string[] } };
     throw new NeedsRepo(b.needsRepo.ownerRepo, b.needsRepo.candidates);

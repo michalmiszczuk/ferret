@@ -60,12 +60,17 @@ export function JobCard({ job, queuedAhead, onCancel, onOpenReview, onDismiss }:
         <div className="job-live">
           <div className="job-phase">
             <span>{job.phase ?? "Working"}…</span>
-            <span className="muted job-stats">
-              {digging ? `${job.model ? `${modelLabel(job.model)} · ` : ""}${elapsed(job.startedAt ?? job.createdAt)}` : ""}
-              {job.stats && (job.stats.tools > 0 || job.stats.files > 0)
-                ? `${digging ? " · " : ""}${job.stats.files} file${job.stats.files === 1 ? "" : "s"} · ${job.stats.tools} step${job.stats.tools === 1 ? "" : "s"}`
-                : ""}
-            </span>
+            {(() => {
+              // Model · elapsed (digging cards only) · files · steps — only the parts that exist, no dangling separators.
+              const parts = [
+                digging && job.model ? modelLabel(job.model) : "",
+                digging ? elapsed(job.startedAt ?? job.createdAt) : "",
+                job.stats && (job.stats.tools > 0 || job.stats.files > 0)
+                  ? `${job.stats.files} file${job.stats.files === 1 ? "" : "s"} read · ${job.stats.tools} step${job.stats.tools === 1 ? "" : "s"}`
+                  : "",
+              ].filter(Boolean);
+              return parts.length > 0 ? <span className="muted job-stats">{parts.join(" · ")}</span> : null;
+            })()}
           </div>
           <div className="job-bar" aria-hidden="true" />
           <ol className="job-feed" aria-label="Activity">
