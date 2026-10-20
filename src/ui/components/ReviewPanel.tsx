@@ -13,8 +13,8 @@ function savedModel(): string {
   }
 }
 import {
-  fetchCommits, fetchEnv, fetchPrs, fetchRepoInfo, fetchRepos, fetchWhiteboardStatus, NeedsRepo, pickFolder, startJob,
-  type RepoInfo, type StartJobScope, type WhiteboardMode, type WhiteboardStatus,
+  fetchClickUpStatus, fetchCommits, fetchEnv, fetchPrs, fetchRepoInfo, fetchRepos, fetchWhiteboardStatus, NeedsRepo, pickFolder, startJob,
+  type ClickUpStatus, type RepoInfo, type StartJobScope, type WhiteboardMode, type WhiteboardStatus,
 } from "../api";
 
 const WB_KEY = "ferret.whiteboard";
@@ -54,6 +54,9 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [wb, setWb] = useState<WhiteboardStatus | null>(null);
+  const [cu, setCu] = useState<ClickUpStatus | null>(null);
+  const [task, setTask] = useState("");
+  const [notes, setNotes] = useState("");
   const [whiteboard, setWhiteboardState] = useState<WhiteboardMode>(() => {
     try {
       const v = localStorage.getItem(WB_KEY);
@@ -86,6 +89,7 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
     setError(null);
     fetchEnv().then(setEnv).catch(() => setEnv(null));
     fetchWhiteboardStatus().then(setWb).catch(() => setWb(null));
+    fetchClickUpStatus().then(setCu).catch(() => setCu(null));
     fetchRepos()
       .then(({ repos }) => {
         const list = needsRepo?.candidates.length ? [...new Set([...needsRepo.candidates, ...repos])] : repos;
@@ -192,7 +196,7 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const job = await startJob(scope, model, wb?.registered ? whiteboard : "off");
+      const job = await startJob(scope, model, wb?.registered ? whiteboard : "off", task, notes);
       onStarted(job);
     } catch (e) {
       if (e instanceof NeedsRepo) {
@@ -399,6 +403,38 @@ export function ReviewPanel({ open, onClose, onStarted, needsRepo }: Props) {
             {tab === "changes" && <p className="muted">Reviews staged, unstaged and untracked changes of the selected repository.</p>}
 
             {error && <p className="warn">{error}</p>}
+            <div className="field">
+              <label className="label" htmlFor="review-task">ClickUp task (optional) — the reviewer reads its description and comments as the requirements</label>
+              <input
+                id="review-task"
+                value={task}
+                placeholder="https://app.clickup.com/t/…  (or a task id)"
+                onChange={(e) => setTask(e.target.value)}
+                disabled={cu !== null && !cu.configured}
+              />
+              {cu !== null && !cu.configured && (
+                <p className="muted small">Save a ClickUp API token first (Export ▾ → Send to ClickUp…) to let Ferret read tasks.</p>
+              )}
+              {Boolean(cu?.recent.length) && (
+                <div className="recent-tasks">
+                  {cu!.recent.map((t) => (
+                    <button key={t.id} className="btn quiet" title={t.url} onClick={() => setTask(t.url)}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="review-notes">Notes for the reviewer (optional)</label>
+              <textarea
+                id="review-notes"
+                rows={2}
+                value={notes}
+                placeholder="What the change is for, what you're worried about, what to ignore…"
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
             <div className="field model-field">
               <label className="label" htmlFor="review-model">Model</label>
               <select id="review-model" value={model} onChange={(e) => setModel(e.target.value)}>

@@ -125,6 +125,8 @@ export const reviewSchema = z.object({
   imported: z.object({ by: z.string().optional(), at: z.string() }).optional(),
   /** Set once the review was drawn on a Whiteboard (dev.fast) canvas. */
   whiteboard: z.object({ sessionId: z.string(), at: z.string() }).optional(),
+  /** The ClickUp task the change implements (given when the review was started; the reviewer read it). */
+  task: z.object({ id: z.string(), name: z.string(), url: z.string() }).optional(),
   findings: z.array(findingSchema),
 });
 export type Review = z.infer<typeof reviewSchema>;

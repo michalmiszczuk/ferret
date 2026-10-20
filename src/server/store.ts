@@ -16,6 +16,7 @@ export interface ReviewExtras {
   source?: ReviewSource;
   jobId?: string;
   imported?: Review["imported"];
+  task?: Review["task"];
 }
 
 function newReviewId(): string {
@@ -90,6 +91,7 @@ export class ReviewStore extends EventEmitter {
       ...(extras.source ? { source: extras.source } : {}),
       ...(extras.jobId ? { jobId: extras.jobId } : {}),
       ...(extras.imported ? { imported: extras.imported } : {}),
+      ...(extras.task ? { task: extras.task } : {}),
       findings,
     };
     this.reviews.set(review.id, review);

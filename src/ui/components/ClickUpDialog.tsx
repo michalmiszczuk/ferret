@@ -10,6 +10,8 @@ interface Props {
   reviewLabel: string;
   /** e.g. "🔴 1 · 🟠 0 · 🟡 2 · 🟢 4" — goes into the automatic message. */
   countsLine: string;
+  /** The task the review was started with (pre-fills the task field). */
+  defaultTask?: string;
   onClose(): void;
 }
 
@@ -19,7 +21,7 @@ const autoMessage = (first: string, label: string, counts: string) =>
   `Hi ${first}! I reviewed ${label} with Ferret — ${counts}. The review file is on the task below; tell me if you want to go through any finding together.`;
 
 /** Export ▾ → Send to ClickUp…: DM a teammate (review as a linked Doc) or attach the .md to a task. */
-export function ClickUpDialog({ open, reviewId, reviewLabel, countsLine, onClose }: Props) {
+export function ClickUpDialog({ open, reviewId, reviewLabel, countsLine, defaultTask, onClose }: Props) {
   const [status, setStatus] = useState<ClickUpStatus | null>(null);
   const [mode, setMode] = useState<Mode>("person");
   const [token, setToken] = useState("");
@@ -43,6 +45,7 @@ export function ClickUpDialog({ open, reviewId, reviewLabel, countsLine, onClose
     setQuery("");
     setMessage("");
     setMessageTouched(false);
+    setTask(defaultTask ?? "");
     fetchClickUpStatus()
       .then((s) => {
         setStatus(s);

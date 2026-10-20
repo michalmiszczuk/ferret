@@ -21,6 +21,8 @@ import {
 } from "./scope";
 import { NotFoundError, type ReviewStore } from "./store";
 import type { WhiteboardService } from "./whiteboard";
+import { formatTaskContext, parseTaskRef, type ClickUpService } from "./clickup";
+import type { Review as StoredReview } from "../shared/schema";
 
 /** Read through a function so TypeScript doesn't narrow `job.status` after an assignment above. */
 const isCancelled = (job: Job): boolean => job.status === "cancelled";
@@ -37,6 +39,8 @@ export interface JobManagerDeps {
   log?: (msg: string) => void;
   /** Whiteboard: explain-first pass and drawing the finished review, when the job asked for it. */
   whiteboard?: WhiteboardService;
+  /** ClickUp: the task a change implements, read for the reviewer when the job names one. */
+  clickup?: Pick<ClickUpService, "taskContext">;
 }
 
 const HISTORY = 100;
@@ -54,6 +58,7 @@ export class JobManager extends EventEmitter {
   private submitted = new Map<string, string>(); // jobId → reviewId
   private scopes = new Map<string, { scope: ResolvedScope; expires: number }>();
   private jobScopes = new Map<string, ResolvedScope>();
+  private jobTasks = new Map<string, NonNullable<StoredReview["task"]>>();
   private readonly file: string;
   readonly worktreesDir: string;
   readonly sandboxDir: string;
@@ -116,6 +121,11 @@ export class JobManager extends EventEmitter {
     return this.jobScopes.get(jobId);
   }
 
+  /** The ClickUp task a review job was started with (attached to the review on submit). */
+  taskForJob(jobId: string): StoredReview["task"] {
+    return this.jobTasks.get(jobId);
+  }
+
   /** Checkouts something may still be reading: running review jobs and chat scopes not yet submitted. */
   private activeCheckouts(): string[] {
     const out: string[] = [];
@@ -159,8 +169,16 @@ export class JobManager extends EventEmitter {
 
   // ---- starting jobs ----
 
-  startReview(input: ScopeInput, model?: string, opts: { whiteboard?: Job["whiteboard"] } = {}): Job {
-    const job = this.add({ kind: "review", label: labelFor(input), scope: input, model: model ?? REVIEW_MODEL, whiteboard: opts.whiteboard || undefined });
+  startReview(input: ScopeInput, model?: string, opts: { whiteboard?: Job["whiteboard"]; task?: string; notes?: string } = {}): Job {
+    const job = this.add({
+      kind: "review",
+      label: labelFor(input),
+      scope: input,
+      model: model ?? REVIEW_MODEL,
+      whiteboard: opts.whiteboard || undefined,
+      task: opts.task || undefined,
+      notes: opts.notes?.trim() || undefined,
+    });
     void this.pumpReviews();
     return job;
   }
@@ -307,6 +325,26 @@ export class JobManager extends EventEmitter {
         return this.finish(job, "failed", `Could not produce the diff: ${(err as Error).message}`);
       }
     }
+    // The ClickUp task the change implements: its description and comments become the reviewer's requirements.
+    let taskText: string | undefined;
+    if (job.task && this.deps.clickup) {
+      job.phase = "Reading the ClickUp task";
+      job.progress = job.task;
+      this.touch(job);
+      try {
+        const ref = parseTaskRef(job.task);
+        if (!ref) throw new Error("not a task link or id");
+        const t = await this.deps.clickup.taskContext(ref);
+        taskText = formatTaskContext(t);
+        job.taskName = t.name;
+        this.jobTasks.set(job.id, { id: t.id, name: t.name, url: t.url });
+      } catch (err) {
+        job.note = `ClickUp task: ${(err as Error).message.slice(0, 160)}`;
+      }
+      job.phase = `Reviewing ${scope.changedFiles.length} changed file${scope.changedFiles.length === 1 ? "" : "s"}`;
+      this.touch(job);
+    }
+
     // "Explain first": Claude writes the Whiteboard document for the change, and the review reads it as its map.
     let wbSessionId: string | undefined;
     let context: string | undefined;
@@ -329,7 +367,14 @@ export class JobManager extends EventEmitter {
           this.touch(job);
           const explain = await this.execute(
             job,
-            buildExplainRun(scope, wbSessionId, { sandboxDir: this.sandboxDir, claudePath: this.deps.claudePath, diffFile, model: job.model, whiteboardServer: server }),
+            buildExplainRun(scope, wbSessionId, {
+              sandboxDir: this.sandboxDir,
+              claudePath: this.deps.claudePath,
+              diffFile,
+              model: job.model,
+              whiteboardServer: server,
+              task: [job.notes ? `Notes from the requester:\n${job.notes}` : "", taskText ?? ""].filter(Boolean).join("\n\n") || undefined,
+            }),
           );
           if (isCancelled(job) || explain.cancelled) {
             if (diffFile) await fs.rm(diffFile, { force: true }).catch(() => {});
@@ -356,6 +401,8 @@ export class JobManager extends EventEmitter {
       diffFile,
       model: job.model,
       context,
+      task: taskText,
+      notes: job.notes,
     });
     let result;
     try {
@@ -383,7 +430,7 @@ export class JobManager extends EventEmitter {
           summary: result.resultText.trim() || "Claude found nothing to report.",
           findings: [],
         },
-        { source: scope.source, jobId: job.id },
+        { source: scope.source, jobId: job.id, task: this.jobTasks.get(job.id) },
       );
       job.reviewId = review.id;
       job.note = "Claude found nothing to report.";

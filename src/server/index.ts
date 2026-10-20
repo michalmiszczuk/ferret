@@ -126,6 +126,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   }
   const github = opts.github ?? createGithub();
   const whiteboard = opts.whiteboard ?? createWhiteboard({ log });
+  const clickup = opts.clickup ?? createClickUp(path.join(home, "clickup.json"));
   const jobs = new JobManager({
     store,
     home,
@@ -135,6 +136,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE,
     log,
     whiteboard,
+    clickup,
   });
   await jobs.load();
   await jobs.sweepWorktrees(); // jobs from a previous run were just marked cancelled, so only reviews hold worktrees now
@@ -150,7 +152,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     pickFolder: opts.pickFolder,
     saveFile: opts.saveFile,
     claudeInstalled: opts.claudeInstalled,
-    clickup: opts.clickup ?? createClickUp(path.join(home, "clickup.json")),
+    clickup,
     deliver: (agent, text) =>
       deliverToSession(agent, text, { sandboxDir: jobs.sandboxDir, claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE }),
     whiteboard,

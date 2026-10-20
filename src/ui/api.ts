@@ -157,11 +157,24 @@ export const openInWhiteboard = (reviewId: string, redraw = false) =>
   }).then((r) => json<{ sessionId: string; opened: boolean }>(r));
 
 export type WhiteboardMode = "off" | "draw" | "explain";
-export async function startJob(scope: StartJobScope, model?: string, whiteboard: WhiteboardMode = "off"): Promise<Job> {
+export async function startJob(
+  scope: StartJobScope,
+  model?: string,
+  whiteboard: WhiteboardMode = "off",
+  task?: string,
+  notes?: string,
+): Promise<Job> {
   const r = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "review", scope, ...(model ? { model } : {}), ...(whiteboard !== "off" ? { whiteboard } : {}) }),
+    body: JSON.stringify({
+      kind: "review",
+      scope,
+      ...(model ? { model } : {}),
+      ...(whiteboard !== "off" ? { whiteboard } : {}),
+      ...(task?.trim() ? { task: task.trim() } : {}),
+      ...(notes?.trim() ? { notes: notes.trim() } : {}),
+    }),
   });
   if (r.status === 409) {
     const b = (await r.json()) as { needsRepo: { ownerRepo: string; candidates: string[] } };

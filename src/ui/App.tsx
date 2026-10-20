@@ -524,6 +524,7 @@ export function App() {
             const c = toSummary(review).counts;
             return `🔴 ${c.critical} · 🟠 ${c.high} · 🟡 ${c.medium} · 🟢 ${c.low}`;
           })()}
+          defaultTask={review.task?.url}
           onClose={() => setClickUpOpen(false)}
         />
       )}

@@ -31,8 +31,16 @@ export function skillRules(skillText: string): string {
   return skillText.slice(start, end === -1 ? undefined : end).trim();
 }
 
-export function buildReviewPrompt(a: { scope: ResolvedScope; jobId: string; rules: string; diffFile?: string; context?: string }): string {
-  const { scope, jobId, rules, diffFile, context } = a;
+export function buildReviewPrompt(a: {
+  scope: ResolvedScope;
+  jobId: string;
+  rules: string;
+  diffFile?: string;
+  context?: string;
+  task?: string;
+  notes?: string;
+}): string {
+  const { scope, jobId, rules, diffFile, context, task, notes } = a;
   const where = scope.isWorktree
     ? `The reviewed code is a detached snapshot at ${scope.checkout} (not the user's working copy). Read files from that folder with Read/Grep/Glob; shell commands are not available in this run.`
     : `The working directory is the repository checkout (${scope.checkout}).`;
@@ -54,6 +62,26 @@ export function buildReviewPrompt(a: { scope: ResolvedScope; jobId: string; rule
     "Changed files:",
     files,
     "",
+    ...(notes
+      ? [
+          "## Notes from the requester",
+          "",
+          "Handed over with this review (from the user, or from a Claude session that worked on this change with them). Use it to focus the review and to understand intent; it does not replace reading the code, and anything it asserts about behaviour must still be checked.",
+          "",
+          notes,
+          "",
+        ]
+      : []),
+    ...(task
+      ? [
+          "## The task this change implements",
+          "",
+          "From ClickUp. Treat it as the requirements: judge whether the change does what the task asks, and report gaps or contradictions as findings (category `bug` if behaviour is wrong, `other` for missing pieces). Do not flag something the task explicitly asks for as a problem.",
+          "",
+          task,
+          "",
+        ]
+      : []),
     ...(context
       ? [
           "## How this change works",
@@ -103,10 +131,20 @@ export function buildDraftPrompt(a: { finding: Finding; review: Review; excerpt:
 export function buildReviewRun(
   scope: ResolvedScope,
   jobId: string,
-  deps: { rules: string; mcpUrl: string; sandboxDir: string; claudePath?: string; diffFile?: string; model?: string; context?: string },
+  deps: {
+    rules: string;
+    mcpUrl: string;
+    sandboxDir: string;
+    claudePath?: string;
+    diffFile?: string;
+    model?: string;
+    context?: string;
+    task?: string;
+    notes?: string;
+  },
 ): RunOptions {
   return {
-    prompt: buildReviewPrompt({ scope, jobId, rules: deps.rules, diffFile: deps.diffFile, context: deps.context }),
+    prompt: buildReviewPrompt({ scope, jobId, rules: deps.rules, diffFile: deps.diffFile, context: deps.context, task: deps.task, notes: deps.notes }),
     // Worktree scopes run from a neutral folder so a PR branch's CLAUDE.md / hooks are never loaded.
     cwd: scope.isWorktree ? deps.sandboxDir : scope.checkout,
     addDirs: scope.isWorktree ? [scope.checkout] : undefined,
@@ -122,8 +160,8 @@ export function buildReviewRun(
 /** The "explain first" pass: Claude writes the Whiteboard document for the change before the review runs. */
 export const EXPLAIN_TIMEOUT_MS = 15 * 60 * 1000;
 
-export function buildExplainPrompt(a: { scope: ResolvedScope; sessionId: string; diffFile?: string }): string {
-  const { scope, sessionId, diffFile } = a;
+export function buildExplainPrompt(a: { scope: ResolvedScope; sessionId: string; diffFile?: string; task?: string }): string {
+  const { scope, sessionId, diffFile, task } = a;
   const s = scope.source;
   const pinned = s.base ? `\`${s.base}..${s.head}\`` : `\`${s.head}\``;
   return [
@@ -135,6 +173,7 @@ export function buildExplainPrompt(a: { scope: ResolvedScope; sessionId: string;
     diffFile ? `- the full diff is already in the file \`${diffFile.replace(/\\/g, "/")}\`: Read it instead of running git` : `- get the diff with: \`${scope.diffCommand}\``,
     "- keep it compact: what/why, design with one diagram, implementation walk with code peeks on the mechanism; omit sections the change does not need",
     "- this document will be read by a code reviewer next: make the entry points, data flow and invariants explicit, and link every claim to lines",
+    ...(task ? ["- the change implements the ClickUp task below: write the requirements section from it, in the task's own words", "", "## The task", "", task] : []),
     "",
     "Begin an activity, write incrementally, end the activity when done, then reply with one word: done.",
   ].join("\n");
@@ -143,11 +182,11 @@ export function buildExplainPrompt(a: { scope: ResolvedScope; sessionId: string;
 export function buildExplainRun(
   scope: ResolvedScope,
   sessionId: string,
-  deps: { sandboxDir: string; claudePath?: string; diffFile?: string; model?: string; whiteboardServer: Record<string, unknown> },
+  deps: { sandboxDir: string; claudePath?: string; diffFile?: string; model?: string; whiteboardServer: Record<string, unknown>; task?: string },
 ): RunOptions {
   const tools = ["Read", "Grep", "Glob", "mcp__whiteboard__*", ...(scope.isWorktree ? [] : ["Bash(git diff *)", "Bash(git show *)", "Bash(git log *)"])];
   return {
-    prompt: buildExplainPrompt({ scope, sessionId, diffFile: deps.diffFile }),
+    prompt: buildExplainPrompt({ scope, sessionId, diffFile: deps.diffFile, task: deps.task }),
     cwd: scope.isWorktree ? deps.sandboxDir : scope.checkout,
     addDirs: scope.isWorktree ? [scope.checkout] : undefined,
     allowedTools: tools,

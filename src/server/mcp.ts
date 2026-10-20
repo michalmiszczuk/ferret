@@ -4,7 +4,9 @@ import express from "express";
 import { z } from "zod";
 import { countBySeverity } from "../shared/findings";
 import { parsePrUrl, parseRange, sourceLabel } from "../shared/git-parse";
+import { MODEL_ID } from "../shared/models";
 import { submitReviewShape } from "../shared/schema";
+import { parseTaskRef } from "./clickup";
 import { anchorFinding, normalizeRepoRoot } from "./files";
 import type { JobManager } from "./jobs";
 import { resolveScope as defaultResolveScope, type PrInfoFn, type ScopeInput } from "./scope";
@@ -67,7 +69,7 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string, dep
         if ((jobId || scopeId) && !scope) throw new Error(`unknown ${jobId ? "job" : "scope"} id; call prepare_review_scope again or omit it`);
         const review = await store.create(
           { ...rest, repoRoot: scope ? scope.checkout : await normalizeRepoRoot(input.repoRoot) },
-          scope ? { source: scope.source, jobId } : {},
+          scope ? { source: scope.source, jobId, task: jobId ? deps.jobs?.taskForJob(jobId) : undefined } : {},
         );
         if (jobId) deps.jobs?.reviewSubmitted(jobId, review.id);
         return ok({ reviewId: review.id, url: `${getBaseUrl()}/r/${review.id}`, counts: countBySeverity(review.findings) });
@@ -110,6 +112,34 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string, dep
             ? `The code is a detached snapshot at ${resolved.checkout}; read files there and run git as \`git -C "${resolved.checkout}" …\`. Pass repoRoot: "${resolved.checkout}" and this scopeId to submit_review.`
             : `Review in place. Pass this scopeId to submit_review.`,
         });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "start_review",
+    {
+      title: "Hand a review to Ferret",
+      description:
+        "Queue a review that Ferret runs itself in the background (headless Claude), instead of reviewing in this chat. Pass what you know from this conversation in `notes` — what the change is for, what the user is worried about, decisions already made, things to ignore — so the reviewer starts with that context. Optionally a ClickUp task link whose description is read as the requirements. Returns the job id; findings appear in Ferret when done.",
+      inputSchema: {
+        repo: z.string().min(1).describe("Absolute path of the local clone"),
+        scope: prepareScopeInput,
+        notes: z.string().max(8000).optional().describe("Context for the reviewer from this conversation (markdown, a few paragraphs at most)"),
+        task: z.string().max(300).optional().describe("ClickUp task link or id the change implements"),
+        model: z.string().regex(MODEL_ID).optional().describe("Model id, e.g. claude-opus-5-5 (default) or claude-sonnet-5-5"),
+        whiteboard: z.enum(["draw", "explain"]).optional().describe("Also draw on Whiteboard, or explain the change on Whiteboard first"),
+      },
+    },
+    async ({ repo, scope, notes, task, model, whiteboard }) => {
+      try {
+        if (!deps.jobs) throw new Error("This Ferret build cannot run reviews itself");
+        if (task && !parseTaskRef(task)) throw new Error("task must be a ClickUp task link (https://app.clickup.com/t/…) or a task id");
+        const input = toScopeInput(await normalizeRepoRoot(repo), scope);
+        const job = deps.jobs.startReview(input, model, { whiteboard, task, notes });
+        return ok({ jobId: job.id, label: job.label, url: getBaseUrl(), message: "Queued in Ferret; the job card shows progress and the review opens there when done." });
       } catch (err) {
         return fail(err);
       }

@@ -35,6 +35,11 @@ export interface Job {
   model?: string;
   /** Whiteboard: "draw" = draw the findings when done; "explain" = Claude explains the change on Whiteboard first, the review uses it as its map, findings are added to the same document. */
   whiteboard?: "draw" | "explain";
+  /** ClickUp task link/id the change implements; its description and comments are given to the reviewer. */
+  task?: string;
+  taskName?: string;
+  /** Context for the reviewer, e.g. handed over by a Claude chat via the start_review tool. */
+  notes?: string;
   /** The latest activity line (what Claude is doing right now). */
   progress?: string;
   /** Coarse stage of a review job: "Fetching the pull request", "Preparing the snapshot", "Reviewing", "Submitting". */

@@ -6,7 +6,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-import { createClickUp, parseTaskRef } from "../src/server/clickup";
+import { createClickUp, formatTaskContext, parseTaskRef } from "../src/server/clickup";
 
 const seen: string[] = [];
 const server = http.createServer((req, res) => {
@@ -35,7 +35,19 @@ const server = http.createServer((req, res) => {
         }],
       });
     }
-    if (route === "GET /v2/task/abc123") return send(200, { id: "abc123", name: "Fix the sanitizer", url: "https://app.clickup.com/t/abc123" });
+    if (route?.startsWith("GET /v2/task/abc123?") || route === "GET /v2/task/abc123") {
+      return send(200, {
+        id: "abc123",
+        name: "Fix the sanitizer",
+        url: "https://app.clickup.com/t/abc123",
+        status: { status: "in progress" },
+        markdown_description: "## Goal\nLabels must not render raw HTML.\n\n- strip tags\n- keep **bold**",
+        attachments: [{ title: "spec.pdf", url: "https://x/spec.pdf" }],
+      });
+    }
+    if (route === "GET /v2/task/abc123/comment") {
+      return send(200, { comments: [{ comment_text: "Also cover the preview pane", user: { username: "kuba" }, date: "1792000000000" }] });
+    }
     if (route === "POST /v2/task/abc123/attachment") {
       seen.push(`attachment has md: ${text.includes("ferret-review-") && text.includes("Ferret review")}`);
       return send(200, { id: "att1" });
@@ -78,6 +90,7 @@ const result = await cu.send(parseTaskRef("https://app.clickup.com/t/abc123")!, 
 });
 console.log("send →", result);
 console.log("members →", (await cu.members()).map((w) => `${w.name}: ${w.members.map((m) => m.username).join(", ")}`));
+console.log("taskContext →\n" + formatTaskContext(await cu.taskContext(parseTaskRef("https://app.clickup.com/t/abc123")!)));
 await cu.dm("9012", 11, "Hi Kuba! I reviewed PR #203 with Ferret — 🔴 1 · 🟡 2.\n\nReview file is attached here: https://app.clickup.com/t/abc123", "Kuba Skibinski");
 console.log("dm → sent");
 console.log("custom id w/o url →", await cu.send(parseTaskRef("PROJ-12")!, { filename: "f.md", markdown, comment: "x" }).catch((e: Error) => e.message));

@@ -58,8 +58,36 @@ export interface SendResult {
 }
 
 
+/** What a reviewer needs to know about the task a change implements. */
+export interface TaskContext {
+  id: string;
+  name: string;
+  url: string;
+  status?: string;
+  description: string;
+  comments: { by: string; at: string; text: string }[];
+  attachments: { title: string; url: string }[];
+}
+
+/** The task as a prompt section (capped so a chatty task can't crowd out the code). */
+export function formatTaskContext(t: TaskContext, maxChars = 8000): string {
+  const lines = [`**${t.name}**${t.status ? ` (${t.status})` : ""} — ${t.url}`, ""];
+  lines.push(t.description.trim() || "_(no description)_", "");
+  if (t.attachments.length) {
+    lines.push("Attachments (not read; names only):", ...t.attachments.map((a) => `- ${a.title} — ${a.url}`), "");
+  }
+  if (t.comments.length) {
+    lines.push("Recent comments (newest last):");
+    for (const c of t.comments) lines.push(`- ${c.by} (${c.at.slice(0, 10)}): ${c.text.replace(/\s+/g, " ").trim()}`);
+  }
+  const text = lines.join("\n");
+  return text.length > maxChars ? `${text.slice(0, maxChars)}\n\n[… task text truncated]` : text;
+}
+
 export interface ClickUpService {
   status(): Promise<ClickUpStatus>;
+  /** Reads a task's description, latest comments and attachment names (for review context). */
+  taskContext(ref: TaskRef): Promise<TaskContext>;
   /** Verifies the token against /user and saves it. Returns the username. */
   setToken(token: string): Promise<string>;
   /** The user's workspaces with their members (for the people picker). */
@@ -166,6 +194,44 @@ export function createClickUp(file: string): ClickUpService {
     async members() {
       const { token } = await requireToken();
       return listWorkspaces(token);
+    },
+
+    async taskContext(ref) {
+      const { token } = await requireToken();
+      if (ref.custom && !ref.teamId) {
+        throw new ClickUpError("That looks like a custom task id: paste the full task link (https://app.clickup.com/t/<team>/<ID-123>) instead.");
+      }
+      const q = ref.custom ? `&custom_task_ids=true&team_id=${encodeURIComponent(ref.teamId!)}` : "";
+      const task = await call<{
+        id: string;
+        name?: string;
+        url?: string;
+        status?: { status?: string };
+        description?: string;
+        markdown_description?: string;
+        attachments?: { title?: string; url?: string }[];
+      }>(token, `/v2/task/${encodeURIComponent(ref.taskId)}?include_markdown_description=true${q}`);
+      if (!task.id) throw new ClickUpError("ClickUp did not return the task (check the link)");
+      let comments: TaskContext["comments"] = [];
+      try {
+        const c = await call<{ comments?: { comment_text?: string; user?: { username?: string }; date?: string }[] }>(token, `/v2/task/${encodeURIComponent(task.id)}/comment`);
+        comments = (c.comments ?? [])
+          .map((x) => ({ by: x.user?.username ?? "someone", at: x.date ? new Date(Number(x.date)).toISOString() : "", text: x.comment_text ?? "" }))
+          .filter((x) => x.text.trim())
+          .slice(0, 10)
+          .reverse();
+      } catch {
+        // comments are optional context
+      }
+      return {
+        id: task.id,
+        name: task.name ?? ref.taskId,
+        url: task.url ?? `${appBase()}/t/${task.id}`,
+        status: task.status?.status,
+        description: task.markdown_description ?? task.description ?? "",
+        comments,
+        attachments: (task.attachments ?? []).flatMap((a) => (a.url ? [{ title: a.title ?? "attachment", url: a.url }] : [])),
+      };
     },
 
     async send(ref, content) {

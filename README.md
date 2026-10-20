@@ -76,6 +76,10 @@ Click **Review ▶** in the header. Ferret runs Claude Code headless (read-only:
 - **Commit** — one commit, a range (shift-click two commits), or a branch compared with the default branch.
 - **Changes** — the repo's uncommitted changes.
 
+Two optional fields give the reviewer context: **ClickUp task** (Ferret reads its description, comments and attachment names as the requirements; needs the ClickUp token from *Send to ClickUp*) and **Notes for the reviewer** (free text: what the change is for, what to worry about, what to ignore).
+
+A Claude chat can also hand a review to Ferret with what it knows: say "let Ferret review it" (or `/ai-review #218 in ferret`) and the chat calls Ferret's `start_review` tool with the scope plus notes from the conversation, then Ferret runs the review in the background.
+
 Reviews run one at a time; cards above the findings list show progress and let you cancel. The reviewed code is shown as it was at that commit, with the changed lines marked in the gutter. Same scopes from the chat: `/ai-review HEAD~3..HEAD`, `/ai-review 3f2a1c9`, `/ai-review feature/x`, `/ai-review #218` (or a PR URL).
 
 **Replies for the author.** On a finding, **Draft reply** asks Claude for a short review comment you can copy into GitHub/Bitbucket; **Draft all** in the header drafts every open finding. Ferret never posts anything.

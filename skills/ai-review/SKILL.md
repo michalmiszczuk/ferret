@@ -22,6 +22,8 @@ Decide the scope from the argument after `/ai-review`:
 | `#218`, `218`, or a PR URL | `prepare_review_scope({ repo, scope: { pr: "<it>" } })` |
 | a branch name (`feature/x`) | `prepare_review_scope({ repo, scope: { branch: "<it>" } })` — compared with the default branch |
 
+**Handing the review to Ferret instead.** If the user asks Ferret to do the review ("let Ferret review it", "send it to Ferret", `/ai-review … in ferret`), don't review in this chat. Call `start_review({ repo, scope, notes, task? })` with the same `scope` as in the table, and put in `notes` what this conversation knows that the diff doesn't: what the change is for, decisions already made and why, what the user is worried about, what to ignore. A few short paragraphs, facts only. Pass `task` if the user gave a ClickUp task link. Then reply with one line saying the review is queued in Ferret, and stop.
+
 `prepare_review_scope` fetches and snapshots as needed and returns `checkout` (where the code is), `isWorktree`, `diffCommand`, `changedFiles`, `label` and a `scopeId`.
 
 - **Read the code in `checkout`**, not in `<repo>`: for a PR or an older commit it is a detached snapshot (another folder). Run git there as `git -C "<checkout>" …`, e.g. the returned `diffCommand`.

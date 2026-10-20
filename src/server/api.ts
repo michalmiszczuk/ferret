@@ -423,7 +423,8 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
           input = scope;
         }
         if (!(await isGitRepo(input.repo))) return res.status(400).json({ error: `not a git repo: ${input.repo}` });
-        res.status(201).json(jobsRef.startReview(input, parsed.data.model, { whiteboard: parsed.data.whiteboard }));
+        if (parsed.data.task && !parseTaskRef(parsed.data.task)) return res.status(400).json({ error: "Paste a ClickUp task link (https://app.clickup.com/t/…) or a task id" });
+        res.status(201).json(jobsRef.startReview(input, parsed.data.model, { whiteboard: parsed.data.whiteboard, task: parsed.data.task || undefined, notes: parsed.data.notes }));
       }),
     );
 
@@ -639,4 +640,6 @@ const startJobSchema = z.object({
   ]),
   model: z.string().regex(MODEL_ID, "invalid model id").optional(),
   whiteboard: z.enum(["draw", "explain"]).optional(),
+  task: z.string().trim().max(300).optional(),
+  notes: z.string().max(8000).optional(),
 });
