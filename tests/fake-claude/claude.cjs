@@ -10,7 +10,17 @@ const arg = (name) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const prompt = arg("-p") || "";
+// Like the real CLI: `-p` with no prompt argument reads the prompt from stdin.
+let prompt = "";
+const pArg = arg("-p");
+if (pArg && !pArg.startsWith("--")) prompt = pArg;
+else {
+  try {
+    prompt = fs.readFileSync(0, "utf8");
+  } catch {
+    prompt = "";
+  }
+}
 
 if (process.env.FAKE_CLAUDE_LOG) {
   fs.writeFileSync(

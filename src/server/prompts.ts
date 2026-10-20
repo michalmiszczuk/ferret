@@ -19,6 +19,10 @@ export const SNAPSHOT_REVIEW_TOOLS = REVIEW_TOOLS.filter((t) => !t.startsWith("B
 export const DRAFT_TOOLS = ["Read", "Grep"];
 export const REVIEW_TIMEOUT_MS = 15 * 60 * 1000;
 export const DRAFT_TIMEOUT_MS = 2 * 60 * 1000;
+/** Big PRs need longer: 15 min + 6 s per changed file, at most 45 min. */
+export function timeoutFor(scope: { changedFiles: string[] }): number {
+  return Math.min(45 * 60_000, REVIEW_TIMEOUT_MS + scope.changedFiles.length * 6_000);
+}
 /** Headless runs name their model: the user's interactive default (e.g. a preview model) may not be available to `claude -p`. */
 export const REVIEW_MODEL = process.env.REVIEW_APP_MODEL ?? DEFAULT_REVIEW_MODEL;
 export const DRAFT_MODEL = process.env.REVIEW_APP_DRAFT_MODEL ?? process.env.REVIEW_APP_MODEL ?? DEFAULT_DRAFT_MODEL;
@@ -151,7 +155,7 @@ export function buildReviewRun(
     allowedTools: scope.isWorktree ? SNAPSHOT_REVIEW_TOOLS : REVIEW_TOOLS,
     mcp: { name: "review-app", url: deps.mcpUrl },
     outputFormat: "stream-json",
-    timeoutMs: REVIEW_TIMEOUT_MS,
+    timeoutMs: timeoutFor(scope),
     model: deps.model ?? REVIEW_MODEL,
     claudePath: deps.claudePath,
   };
@@ -192,7 +196,7 @@ export function buildExplainRun(
     allowedTools: tools,
     mcpServers: { whiteboard: deps.whiteboardServer },
     outputFormat: "stream-json",
-    timeoutMs: EXPLAIN_TIMEOUT_MS,
+    timeoutMs: timeoutFor(scope),
     model: deps.model ?? REVIEW_MODEL,
     claudePath: deps.claudePath,
   };

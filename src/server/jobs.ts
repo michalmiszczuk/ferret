@@ -10,7 +10,7 @@ export type Job = Omit<WireJob, "scope"> & { scope?: ScopeInput };
 import type { Finding, Review } from "../shared/schema";
 import { runClaude as defaultRunClaude, type RunHandle, type RunOptions } from "./claude-runner";
 import { readRepoFile, reanchor, splitLines } from "./files";
-import { buildDraftRun, buildExplainRun, buildReviewRun, REVIEW_MODEL } from "./prompts";
+import { buildDraftRun, buildExplainRun, buildReviewRun, REVIEW_MODEL, timeoutFor } from "./prompts";
 import {
   diffPatch,
   resolveScope as defaultResolveScope,
@@ -263,6 +263,9 @@ export class JobManager extends EventEmitter {
     this.reviewLaneBusy = true;
     try {
       await this.runReview(job);
+    } catch (err) {
+      // Anything unexpected must end the job visibly, never leave it "running" with nothing behind it.
+      if (job.status === "running" || job.status === "queued") this.finish(job, "failed", `Review crashed: ${(err as Error).message.slice(0, 300)}`);
     } finally {
       this.reviewLaneBusy = false;
       void this.pumpReviews();
@@ -277,6 +280,8 @@ export class JobManager extends EventEmitter {
     try {
       if (job.kind === "draft") await this.runDraft(job);
       else await this.runDraftAll(job);
+    } catch (err) {
+      if (job.status === "running" || job.status === "queued") this.finish(job, "failed", `Draft crashed: ${(err as Error).message.slice(0, 300)}`);
     } finally {
       this.draftLaneBusy = false;
       void this.pumpDrafts();
@@ -410,7 +415,7 @@ export class JobManager extends EventEmitter {
     } finally {
       if (diffFile) await fs.rm(diffFile, { force: true }).catch(() => {});
     }
-    if (result.timedOut && !isCancelled(job)) return this.finish(job, "failed", "Review timed out after 15 minutes.");
+    if (result.timedOut && !isCancelled(job)) return this.finish(job, "failed", `Review timed out after ${Math.round(timeoutFor(scope) / 60000)} minutes.`);
     if (isCancelled(job) || result.cancelled) return this.finish(job, "cancelled");
     if (!result.ok) {
       // Prefer Claude's own words (the result text of an error result) over a raw log line.

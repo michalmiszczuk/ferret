@@ -34,9 +34,9 @@ export interface RunResult {
 export type RunnerEvent = { type: "progress"; text: string } | { type: "result"; text: string; isError: boolean };
 
 export function buildClaudeArgs(o: RunOptions): string[] {
+  // The prompt goes on stdin, not here: a big PR's prompt exceeds Windows' 32K command-line limit.
   const args = [
     "-p",
-    o.prompt,
     "--output-format",
     o.outputFormat,
     ...(o.outputFormat === "stream-json" ? ["--verbose"] : []), // the CLI requires it for stream-json in print mode
@@ -128,13 +128,24 @@ export class RunHandle extends EventEmitter {
     const exe = this.o.claudePath ?? "claude";
     const env = this.o.env ?? childEnv();
     const viaNode = /\.(c|m)?js$/i.test(exe);
-    // stdin closed: otherwise the CLI waits 3 s for piped input before starting.
-    const stdio: ["ignore", "pipe", "pipe"] = ["ignore", "pipe", "pipe"];
-    const child = viaNode
-      ? spawn(process.execPath, [exe, ...args], { cwd: this.o.cwd, env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, windowsHide: true, stdio })
-      : spawn(exe, args, { cwd: this.o.cwd, env, windowsHide: true, stdio });
+    // The prompt is written to stdin and stdin is closed right after, so the CLI starts at once (no size limit).
+    const stdio: ["pipe", "pipe", "pipe"] = ["pipe", "pipe", "pipe"];
+    let child: ChildProcess;
+    try {
+      child = viaNode
+        ? spawn(process.execPath, [exe, ...args], { cwd: this.o.cwd, env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, windowsHide: true, stdio })
+        : spawn(exe, args, { cwd: this.o.cwd, env, windowsHide: true, stdio });
+    } catch (err) {
+      // spawn can throw synchronously (e.g. a bad cwd); report it as a failed run instead of leaving the job hanging.
+      const msg = `spawn error: ${(err as Error).message}`;
+      this.emit("log", msg);
+      this.resolveDone({ ok: false, exitCode: null, resultText: msg, isError: true, logTail: [msg], cancelled: false, timedOut: false });
+      return this;
+    }
     this.child = child;
     this.pid = child.pid;
+    child.stdin!.on("error", () => {}); // the child may exit before reading; the close handler reports that
+    child.stdin!.end(this.o.prompt, "utf8");
 
     const log: string[] = [];
     const push = (line: string) => {
