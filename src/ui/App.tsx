@@ -14,7 +14,10 @@ import { CodeView } from "./components/CodeView";
 import { FindingsList } from "./components/FindingsList";
 import { ConnectButton, Header } from "./components/Header";
 import { JobCard } from "./components/JobCard";
+import { ProposalPane } from "./components/ProposalPane";
 import { ReviewPanel } from "./components/ReviewPanel";
+import { StepCard } from "./components/StepCard";
+import { initialMode, proposalIdFromUrl, remainingToAccept, useProposals, type Mode } from "./useProposals";
 
 function idFromUrl(): string | null {
   const m = location.pathname.match(/^\/r\/([\w-]+)/);
@@ -46,6 +49,15 @@ export function App() {
     setToast({ msg, action });
     toastTimer.current = setTimeout(() => setToast(null), ms);
   }, []);
+
+  // Reviews | Proposals: two modes with their own list, switcher and keys. Proposal state lives in the hook.
+  const [mode, setMode] = useState<Mode>(initialMode);
+  const reviewOpen = useCallback(() => Boolean(reviewIdRef.current), []);
+  const pm = useProposals({ mode, setMode, showToast, reviewOpen });
+  useEffect(() => {
+    // Leaving Proposals mode: the URL goes back to the open review (the hook pushes /p/<id> on the way in).
+    if (mode === "reviews" && location.pathname.startsWith("/p/")) history.replaceState(null, "", reviewIdRef.current ? `/r/${reviewIdRef.current}` : "/");
+  }, [mode]);
 
   // Background jobs (reviews started from Ferret, reply drafts). Finished ones can be dismissed from the list.
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -156,6 +168,7 @@ export function App() {
   }, [reviewId]);
 
   // Live updates: a new review jumps into view; changes to the open review refresh it.
+  const onProposalEvent = pm.onEvent;
   useEffect(
     () =>
       subscribe((e) => {
@@ -179,6 +192,10 @@ export function App() {
         if (e.type === "review-deleted") {
           if (e.reviewId === reviewIdRef.current) leaveReview();
           void loadReviews();
+          return;
+        }
+        if ("proposalId" in e) {
+          onProposalEvent(e);
           return;
         }
         void loadReviews();
@@ -206,7 +223,7 @@ export function App() {
             .catch(() => {});
         }
       }),
-    [loadReviews, leaveReview, showToast, setSelectedId],
+    [loadReviews, leaveReview, showToast, setSelectedId, onProposalEvent],
   );
 
   // The SSE "review-deleted" handler normally moves the view on before the HTTP response arrives;
@@ -235,11 +252,21 @@ export function App() {
     }
   }, [reviews.length, leaveReview, loadReviews, showToast]);
 
+  const openProposal = pm.open;
   useEffect(() => {
-    const onPop = () => setReviewId(idFromUrl());
+    const onPop = () => {
+      const pid = proposalIdFromUrl();
+      if (pid) {
+        setMode("proposals");
+        openProposal(pid);
+      } else {
+        setMode("reviews");
+        setReviewId(idFromUrl());
+      }
+    };
     addEventListener("popstate", onPop);
     return () => removeEventListener("popstate", onPop);
-  }, []);
+  }, [openProposal]);
 
   const nav = useMemo(() => (review ? navOrder(review.findings, filters, doneOpen) : []), [review, filters, doneOpen]);
   const selected = review?.findings.find((f) => f.id === selectedId) ?? null;
@@ -325,8 +352,9 @@ export function App() {
     [review, update, showToast, sendTarget],
   );
 
-  // Keyboard: j/k move, f fix, d dismiss, n note, Esc leaves the note.
+  // Keyboard (Reviews mode): j/k move, d dismiss, n note, Esc leaves the note. Proposals mode has its own map in the hook.
   useEffect(() => {
+    if (mode !== "reviews") return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT") {
@@ -350,7 +378,7 @@ export function App() {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [nav, selectedId, selected, update]);
+  }, [mode, nav, selectedId, selected, update]);
 
   const openReview = useCallback(
     (id: string) => {
@@ -498,9 +526,15 @@ export function App() {
   return (
     <div className="app">
       <Header
+        mode={mode}
+        onMode={setMode}
         reviews={reviews}
         review={review}
         onSwitch={openReview}
+        proposals={pm.proposals}
+        proposal={pm.proposal}
+        onSwitchProposal={pm.open}
+        onDeleteProposal={() => void pm.remove()}
         claude={claude}
         connecting={connecting}
         onConnect={onConnect}
@@ -542,7 +576,46 @@ export function App() {
         }}
       />
       {dragging && <div className="drop-hint">Drop a Ferret review (.md) to import it</div>}
-      {!review ? (
+      {mode === "proposals" ? (
+        <div className="main">
+          <ProposalPane proposals={pm.proposals} proposal={pm.proposal} stepId={pm.stepId} onSelect={pm.clickStep} queued={pm.queued} onOpen={pm.open} top={jobCards} />
+          {pm.proposal && pm.step ? (
+            <StepCard
+              proposal={pm.proposal}
+              step={pm.step}
+              index={pm.proposal.steps.findIndex((s) => s.stepId === pm.step!.stepId)}
+              busy={pm.busy}
+              onDecide={(kind, text) => void pm.decide(kind, text)}
+              onRefresh={() => void pm.refresh()}
+              onAcceptAll={() => void pm.acceptRemaining()}
+              remaining={remainingToAccept(pm.proposal)}
+              askRef={pm.askRef}
+              queued={pm.queued}
+              onApproveNext={pm.approveAndNext}
+              onSendQueued={() => void pm.sendQueued()}
+              onClearQueue={pm.clearQueue}
+            />
+          ) : (
+            <div className="welcome">
+              {pm.proposals.length === 0 ? (
+                <div className="get-started">
+                  <p>No proposals yet.</p>
+                  <ol>
+                    <li>
+                      In a Claude Code chat, describe the change and add <code>/propose-changes</code> (or say “propose this in Ferret”).
+                    </li>
+                    <li>Claude lists the edits as steps here. Accept, ask or decline each one; Claude applies what you accepted.</li>
+                  </ol>
+                </div>
+              ) : pm.proposal ? (
+                "This proposal has no steps."
+              ) : (
+                "Loading…"
+              )}
+            </div>
+          )}
+        </div>
+      ) : !review ? (
         // Keep the two-pane layout even when there is nothing to show yet.
         <div className="main">
           <FindingsList

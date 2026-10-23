@@ -18,7 +18,12 @@ describe("skills", () => {
   it.each(SKILL_NAMES)("%s has matching frontmatter name and references the MCP tools", async (name) => {
     const text = await fs.readFile(path.join(pkgDir, "skills", name, "SKILL.md"), "utf8");
     expect(text).toMatch(new RegExp(`^---\\nname: ${name}\\n`, "m"));
-    const tools = name === "ai-review" ? ["submit_review"] : ["get_pending_actions", "mark_done"];
+    const tools = {
+      "ai-review": ["submit_review"],
+      "apply-review": ["get_pending_actions", "mark_done"],
+      "propose-changes": ["propose_changes"],
+      "apply-proposal": ["get_proposal_decisions", "mark_step"],
+    }[name];
     for (const t of tools) expect(text).toContain(t);
   });
 });

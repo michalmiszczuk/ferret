@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 
-export const SKILL_NAMES = ["ai-review", "apply-review"] as const;
+export const SKILL_NAMES = ["ai-review", "apply-review", "propose-changes", "apply-proposal"] as const;
 
 /** Walks up from a file to the nearest directory containing package.json (works from src/ and from dist/). */
 export function findPackageDir(fromFile: string): string {

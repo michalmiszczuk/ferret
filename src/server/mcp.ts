@@ -5,10 +5,12 @@ import { z } from "zod";
 import { countBySeverity } from "../shared/findings";
 import { parsePrUrl, parseRange, sourceLabel } from "../shared/git-parse";
 import { MODEL_ID } from "../shared/models";
+import { addStepsShape, answerShape, markStepShape, proposeChangesShape, reviseStepShape } from "../shared/proposal";
 import { submitReviewShape } from "../shared/schema";
 import { parseTaskRef } from "./clickup";
 import { anchorFinding, normalizeRepoRoot } from "./files";
 import type { JobManager } from "./jobs";
+import { repoFileReader, type ProposalStore } from "./proposal-store";
 import { resolveScope as defaultResolveScope, type PrInfoFn, type ScopeInput } from "./scope";
 import type { ReviewStore } from "./store";
 
@@ -17,6 +19,7 @@ export interface McpDeps {
   resolveScope?: typeof defaultResolveScope;
   prInfo?: PrInfoFn;
   worktreesDir?: string;
+  proposals?: ProposalStore;
 }
 
 const prepareScopeInput = z.union([
@@ -227,7 +230,156 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string, dep
     },
   );
 
+  registerProposalTools(server, getBaseUrl, deps);
   return server;
+}
+
+/** Proposal mode: a session proposes a task as steps; the user decides in Ferret; decisions come back as chat messages. */
+function registerProposalTools(server: McpServer, getBaseUrl: () => string, deps: McpDeps): void {
+  const proposals = () => {
+    if (!deps.proposals) throw new Error("This Ferret build has no proposal mode");
+    return deps.proposals;
+  };
+  const stepSummary = (s: { stepId: string; status: string; title: string }) => ({ stepId: s.stepId, status: s.status, title: s.title });
+
+  server.registerTool(
+    "propose_changes",
+    {
+      title: "Propose changes step by step",
+      description:
+        "Before editing files for a task, propose the change as ordered steps so the user approves each one in Ferret. Each edit/delete step's `before` must be the EXACT current text of the file (copy it, whitespace included) and `after` the full replacement; `lineStart`/`lineEnd` say where `before` is now. Use `dependsOn` when a step only makes sense after another is applied. Add `notes` (`{ at, text }`) for every function/method/non-obvious block in `after`: they are shown inside the diff at that line, so the user understands the code where it is. Do NOT edit anything yet: the user's decisions arrive in this chat as `/apply-proposal <proposalId> <stepId> accept|decline|ask …` messages (or `accept-all`); apply only accepted steps, then call mark_step. If you lose a message, call get_proposal_decisions.",
+      inputSchema: proposeChangesShape,
+    },
+    async (input) => {
+      try {
+        const repoRoot = await normalizeRepoRoot(input.repoRoot);
+        const p = await proposals().create({ ...input, repoRoot });
+        return ok({
+          proposalId: p.id,
+          url: `${getBaseUrl()}/p/${p.id}`,
+          steps: p.steps.length,
+          message: `Proposed ${p.steps.length} step(s). Wait for the user's decisions (they come as /apply-proposal messages); do not apply anything yet.`,
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "add_steps",
+    {
+      title: "Add steps to a proposal",
+      description: "Append (or insert after a step) more steps to an existing proposal, e.g. follow-ups the user asked for. Same rules as propose_changes.",
+      inputSchema: addStepsShape,
+    },
+    async ({ proposalId, steps, afterStepId }) => {
+      try {
+        const p = await proposals().addSteps(proposalId, steps, afterStepId);
+        return ok({ proposalId, steps: p.steps.map(stepSummary) });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "revise_step",
+    {
+      title: "Revise a proposed step",
+      description:
+        "Replace a step's what/why/before/after after the user asked a question or declined it with a reason. The previous version is kept; the step goes back to pending for a new decision.",
+      inputSchema: reviseStepShape,
+    },
+    async ({ proposalId, stepId, ...patch }) => {
+      try {
+        const s = await proposals().reviseStep(proposalId, stepId, patch);
+        return ok({ proposalId, step: stepSummary(s), revisions: s.revisions.length, message: "The step is pending again; wait for the user's decision." });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "answer_proposal",
+    {
+      title: "Answer a question about a step",
+      description: "Reply to the user's question on a step (decision `ask`) without changing the step. The step goes back to pending so the user can decide.",
+      inputSchema: answerShape,
+    },
+    async ({ proposalId, stepId, answer }) => {
+      try {
+        const s = await proposals().answer(proposalId, stepId, answer);
+        return ok({ proposalId, step: stepSummary(s) });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_proposal_decisions",
+    {
+      title: "Get the user's decisions on a proposal",
+      description:
+        "Returns decisions not yet handed over (accept / decline / ask with the user's text) and marks them as taken. Decisions normally arrive in this chat as /apply-proposal messages; use this when one was missed or to check. `stale: true` means the file no longer contains the step's `before` text: re-read the file and revise_step before applying.",
+      inputSchema: {
+        proposalId: z.string().optional().describe("Proposal id, e.g. p_8f3k2a. Omit for the latest proposal."),
+      },
+    },
+    async ({ proposalId }) => {
+      try {
+        const store = proposals();
+        const { proposal, steps } = await store.takeDecisions(proposalId);
+        const views = await store.views(proposal, repoFileReader(proposal.repoRoot));
+        const stale = new Map(views.map((v) => [v.stepId, v.stale]));
+        const decisions = steps.map((s) => ({
+          stepId: s.stepId,
+          decision: s.decision!.kind,
+          ...(s.decision!.text ? { text: s.decision!.text } : {}),
+          title: s.title,
+          kind: s.kind,
+          file: s.file,
+          lineStart: s.lineStart,
+          lineEnd: s.lineEnd,
+          before: s.before,
+          after: s.after,
+          command: s.command,
+          stale: stale.get(s.stepId) ?? false,
+        }));
+        return ok({
+          proposalId: proposal.id,
+          repoRoot: proposal.repoRoot,
+          decisions,
+          ...(decisions.length === 0 ? { message: "No new decisions. The user decides each step in Ferret; wait for /apply-proposal messages." } : {}),
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "mark_step",
+    {
+      title: "Report a step's outcome",
+      description:
+        "Call after handling each accepted step: `applied` with a one-sentence note of what changed, `failed` with why, or `skipped` with why. For command steps put the trimmed output in `note`.",
+      inputSchema: markStepShape,
+    },
+    async ({ proposalId, stepId, outcome, note }) => {
+      try {
+        const store = proposals();
+        await store.markStep(proposalId, stepId, outcome, note);
+        const p = store.get(proposalId)!;
+        const remaining = p.steps.filter((s) => s.status === "accepted").length;
+        return ok({ ok: true, remaining, proposalStatus: p.status });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
 }
 
 /** Stateless Streamable HTTP: a fresh MCP server + transport per POST, as in the SDK's stateless example. */

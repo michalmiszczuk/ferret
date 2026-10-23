@@ -1,6 +1,7 @@
 import type {
-  ClaudeConnectResult, ClaudeStatus, CommitSummary, EnvStatus, FileResponse, Job, PrSummary, ReviewSummary, StoreEvent,
+  ClaudeConnectResult, ClaudeStatus, CommitSummary, EnvStatus, FileResponse, Job, PrSummary, ProposalSummary, ReviewSummary, StepView, StoreEvent,
 } from "../shared/api-types";
+import type { DecisionKind, Proposal } from "../shared/proposal";
 
 export interface RepoInfo {
   isRepo: boolean;
@@ -183,6 +184,31 @@ export async function startJob(
   if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `${r.status}`);
   return (await r.json()) as Job;
 }
+
+// ---- proposal mode ----
+export type ProposalFull = Omit<Proposal, "steps"> & { steps: StepView[] };
+/** A decision's result: the updated step and whether the courier got it into the proposing session. */
+export interface DecisionResult {
+  step: StepView;
+  delivered: boolean;
+  agent?: string;
+  reason?: string;
+}
+export const fetchProposals = () => fetch("/api/proposals").then((r) => json<ProposalSummary[]>(r));
+export const fetchProposal = (id: string) => fetch(`/api/proposals/${enc(id)}`).then((r) => json<ProposalFull>(r));
+export const decideStep = (id: string, stepId: string, kind: DecisionKind, text?: string) =>
+  postJson<DecisionResult>(`/api/proposals/${enc(id)}/steps/${enc(stepId)}/decide`, { kind, ...(text?.trim() ? { text: text.trim() } : {}) });
+export const refreshStep = (id: string, stepId: string) => postJson<DecisionResult>(`/api/proposals/${enc(id)}/steps/${enc(stepId)}/refresh`, {});
+export const acceptAll = (id: string) =>
+  postJson<{ steps: StepView[]; delivered: boolean; agent?: string; reason?: string }>(`/api/proposals/${enc(id)}/accept-all`, {});
+export const fetchProposalFile = (id: string, path: string) =>
+  fetch(`/api/proposals/${enc(id)}/file?path=${enc(path)}`).then((r) => json<{ exists: false } | { exists: true; content: string }>(r));
+export const acceptSteps =(id: string, stepIds: string[], texts: Record<string, string> = {}) =>
+  postJson<{ steps: StepView[]; skipped: { stepId: string; reason: string }[]; delivered: boolean; agent?: string; reason?: string }>(
+    `/api/proposals/${enc(id)}/accept-steps`,
+    { stepIds, texts },
+  );
+export const deleteProposal =(id: string) => fetch(`/api/proposals/${enc(id)}`, { method: "DELETE" }).then((r) => json<{ ok: true }>(r));
 
 /** Native folder dialog (desktop app). Returns null when cancelled; throws when this build has no dialog. */
 export const pickFolder = () => postJson<{ path?: string; cancelled?: boolean }>("/api/pick-folder", {}).then((r) => r.path ?? null);

@@ -154,17 +154,23 @@ async function installIntegration(): Promise<void> {
   }
 }
 
+/** A new review or proposal brings the window up (and a notification when it was hidden). */
 function onStoreChange(e: StoreEvent): void {
-  if (e.type !== "review-created" || !win || !server) return;
+  if ((e.type !== "review-created" && e.type !== "proposal-created") || !win || !server) return;
   const wasVisible = win.isVisible();
   showWindow();
   if (!wasVisible && Notification.isSupported()) {
-    const review = server.store.get(e.reviewId);
-    const n = new Notification({
-      title: "New review",
-      body: review ? reviewNotificationText(countBySeverity(review.findings)) : e.reviewId,
-      icon: icon(64),
-    });
+    let title = "New review";
+    let body: string;
+    if (!("proposalId" in e)) {
+      const review = server.store.get(e.reviewId);
+      body = review ? reviewNotificationText(countBySeverity(review.findings)) : e.reviewId;
+    } else {
+      const proposal = server.proposals.get(e.proposalId);
+      title = "New proposal";
+      body = proposal ? `${proposal.task.title} · ${proposal.steps.length} step${proposal.steps.length === 1 ? "" : "s"} to approve` : e.proposalId;
+    }
+    const n = new Notification({ title, body, icon: icon(64) });
     n.on("click", showWindow);
     n.show();
   }
@@ -199,6 +205,7 @@ async function start(): Promise<void> {
     return;
   }
   server.store.on("change", onStoreChange);
+  server.proposals.on("change", onStoreChange);
   createWindow(server.url, startedHidden(process.argv));
   createTray();
 }

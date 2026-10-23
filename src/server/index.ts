@@ -13,6 +13,7 @@ import { createGithub, type Github } from "./github";
 import { JobManager } from "./jobs";
 import { mountMcp } from "./mcp";
 import { skillRules } from "./prompts";
+import { ProposalStore } from "./proposal-store";
 import { ReviewStore } from "./store";
 
 export const HOST = "127.0.0.1";
@@ -48,6 +49,8 @@ export interface ServerOptions {
   pickFolder?: () => Promise<string | null>;
   saveFile?: (suggestedName: string, content: string) => Promise<string | null>;
   claudeInstalled?: () => Promise<{ installed: boolean; version?: string }>;
+  /** Override the cross-session courier (dev scripts spy on it). Default: a headless Claude run with SendMessage. */
+  deliver?: (agent: string, text: string) => Promise<void>;
 }
 
 export function createApp(opts: {
@@ -64,6 +67,7 @@ export function createApp(opts: {
   clickup?: ClickUpService;
   deliver?: (agent: string, text: string) => Promise<void>;
   whiteboard?: WhiteboardService;
+  proposals?: ProposalStore;
 }): express.Express {
   const app = express();
   app.disable("x-powered-by");
@@ -81,12 +85,14 @@ export function createApp(opts: {
       clickup: opts.clickup,
       deliver: opts.deliver,
       whiteboard: opts.whiteboard,
+      proposals: opts.proposals,
     }),
   );
   mountMcp(app, opts.store, () => `http://${HOST}:${opts.getPort()}`, {
     jobs: opts.jobs,
     prInfo: (repo, n) => opts.github.prInfo(repo, n),
     worktreesDir: opts.jobs.worktreesDir,
+    proposals: opts.proposals,
   });
   if (opts.uiDir) {
     const uiDir = opts.uiDir;
@@ -105,6 +111,7 @@ export interface RunningServer {
   port: number;
   store: ReviewStore;
   jobs: JobManager;
+  proposals: ProposalStore;
   close(): Promise<void>;
 }
 
@@ -113,6 +120,8 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
   const log = opts.log ?? console.warn;
   const store = new ReviewStore(path.join(home, "reviews"), log);
   await store.load();
+  const proposals = new ProposalStore(path.join(home, "proposals"), log);
+  await proposals.load();
   let port = opts.port ?? 4477;
   const mcpUrl = () => `http://${HOST}:${port}/mcp`;
 
@@ -153,9 +162,11 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     saveFile: opts.saveFile,
     claudeInstalled: opts.claudeInstalled,
     clickup,
-    deliver: (agent, text) =>
-      deliverToSession(agent, text, { sandboxDir: jobs.sandboxDir, claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE }),
+    deliver:
+      opts.deliver ??
+      ((agent, text) => deliverToSession(agent, text, { sandboxDir: jobs.sandboxDir, claudePath: opts.claudePath ?? process.env.REVIEW_APP_CLAUDE })),
     whiteboard,
+    proposals,
   });
   const server: Server = await new Promise((resolve, reject) => {
     const s = app.listen(port, HOST, () => resolve(s));
@@ -168,6 +179,7 @@ export async function startServer(opts: ServerOptions = {}): Promise<RunningServ
     port,
     store,
     jobs,
+    proposals,
     close: async () => {
       await jobs.shutdown(); // no claude/git process outlives the app
       await new Promise<void>((resolve) => {

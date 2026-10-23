@@ -73,7 +73,18 @@ export interface ClaudeConnectResult {
 
 export type StoreEvent =
   | { type: "review-created" | "review-updated" | "review-deleted"; reviewId: string }
-  | { type: "job-updated"; jobId: string };
+  | { type: "job-updated"; jobId: string }
+  | { type: "proposal-created" | "proposal-updated" | "proposal-deleted"; proposalId: string };
+
+/** Proposal mode (see shared/proposal.ts): list entry and a step as the UI sees it. */
+export interface ProposalSummary {
+  id: string;
+  title: string;
+  status: "active" | "done";
+  createdAt: string;
+  progress: { applied: number; total: number };
+}
+export type StepView = import("./proposal").Step & { stale: boolean; blocked: boolean; blockedBy: string[] };
 
 export type Anchor = { lineStart: number; lineEnd: number; anchor: "exact" | "moved" | "lost" };
 

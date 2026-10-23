@@ -15,6 +15,8 @@ import { GH_UNAVAILABLE, GithubError, type Github } from "./github";
 import type { JobManager } from "./jobs";
 import { exportReview, parseExport } from "../shared/export";
 import { importReview } from "./import";
+import { acceptAllCommand, acceptStepsCommand, decisionCommand, MAX_QUESTION, decisionSchema, proposalProgress, type Proposal } from "../shared/proposal";
+import { repoFileReader, type ProposalStore } from "./proposal-store";
 import { defaultBranch, headSha, isGitRepo, listBranches, listCommits, originUrl, repoNameOf, ScopeError, type ScopeInput } from "./scope";
 import { NotFoundError, type ReviewStore } from "./store";
 import { findVsCodeTheme } from "./vscode-theme";
@@ -34,10 +36,11 @@ export interface ApiOptions {
   /** Delivers a message into a running Claude Code session by its agent name (built in index.ts). */
   deliver?: (agent: string, text: string) => Promise<void>;
   whiteboard?: WhiteboardService;
+  proposals?: ProposalStore;
 }
 
 export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Router {
-  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup, deliver, whiteboard } = opts;
+  const { claude, openExternal, jobs, github, pickFolder, saveFile, claudeInstalled, clickup, deliver, whiteboard, proposals } = opts;
   const r = Router();
   r.use(express.json({ limit: "1mb" }));
 
@@ -278,11 +281,13 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
     const onChange = (e: StoreEvent) => res.write(`data: ${JSON.stringify(e)}\n\n`);
     store.on("change", onChange);
     jobs?.on("change", onChange);
+    proposals?.on("change", onChange);
     const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
     req.on("close", () => {
       clearInterval(ping);
       store.off("change", onChange);
       jobs?.off("change", onChange);
+      proposals?.off("change", onChange);
     });
   });
 
@@ -625,7 +630,156 @@ export function createApiRouter(store: ReviewStore, opts: ApiOptions = {}): Rout
     }),
   );
 
+  if (proposals) mountProposalRoutes(r, proposals, deliver);
+
   return r;
+}
+
+/** The canned question "Refresh" sends when a step's `before` no longer matches the file. */
+export const REFRESH_TEXT = "The file changed since you proposed this step. Please re-read it and revise the step.";
+const DELIVERY_PREFIX = "Ferret: a decision on your proposal. Please handle it now: ";
+
+type Delivery = { delivered: boolean; agent?: string; reason?: string };
+
+// ---- proposal mode: decisions go straight into the proposing session ----
+function mountProposalRoutes(r: Router, proposals: ProposalStore, deliver?: ApiOptions["deliver"]): void {
+  const jsonOnly = (req: Request, res: Response): boolean => {
+    if (req.is("application/json")) return true;
+    res.status(415).json({ error: "Expected application/json" });
+    return false;
+  };
+  const summary = (p: Proposal) => ({ id: p.id, title: p.task.title, status: p.status, createdAt: p.createdAt, progress: proposalProgress(p) });
+  const views = (p: Proposal) => proposals.views(p, repoFileReader(p.repoRoot));
+  const withStore = (fn: Handler) =>
+    wrap(async (req, res) => {
+      try {
+        return await fn(req, res);
+      } catch (err) {
+        if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
+        if (err instanceof Error && !(err instanceof TypeError)) return res.status(400).json({ error: err.message }); // store rules: blocked, applied, …
+        throw err;
+      }
+    });
+
+  const send = async (p: Proposal, command: string): Promise<Delivery> => {
+    if (!deliver) return { delivered: false, reason: "This Ferret build cannot message Claude sessions" };
+    if (!p.sessionId) return { delivered: false, reason: "The proposal did not record its Claude session" };
+    const agent = (await listLiveSessions()).find((s) => s.sessionId === p.sessionId)?.name;
+    if (!agent) return { delivered: false, reason: "The proposing Claude session isn't running" };
+    try {
+      await deliver(agent, `${DELIVERY_PREFIX}${command}`);
+      return { delivered: true, agent };
+    } catch (err) {
+      return { delivered: false, agent, reason: (err as Error).message };
+    }
+  };
+
+  r.get("/proposals", (_req, res) => res.json(proposals.list().map(summary)));
+
+  r.get(
+    "/proposals/:id",
+    withStore(async (req, res) => {
+      const p = proposals.get(req.params.id);
+      if (!p) return res.status(404).json({ error: "Proposal not found" });
+      res.json({ ...p, steps: await views(p) });
+    }),
+  );
+
+  const decide = async (req: Request, res: Response, decision: { kind: "accept" | "decline" | "ask"; text?: string }) => {
+    const { id, sid } = req.params;
+    await proposals.decide(id, sid, decision);
+    const p = proposals.get(id)!;
+    const delivery = await send(p, decisionCommand(id, sid, decision));
+    const step = (await views(p)).find((s) => s.stepId === sid)!;
+    res.json({ step, ...delivery });
+  };
+
+  r.post(
+    "/proposals/:id/steps/:sid/decide",
+    withStore(async (req, res) => {
+      if (!jsonOnly(req, res)) return;
+      const parsed = decisionSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+      await decide(req, res, parsed.data);
+    }),
+  );
+
+  r.post(
+    "/proposals/:id/steps/:sid/refresh",
+    withStore(async (req, res) => {
+      if (!jsonOnly(req, res)) return;
+      await decide(req, res, { kind: "ask", text: REFRESH_TEXT });
+    }),
+  );
+
+  r.post(
+    "/proposals/:id/accept-all",
+    withStore(async (req, res) => {
+      if (!jsonOnly(req, res)) return;
+      const { id } = req.params;
+      const accepted = await proposals.acceptAllRemaining(id);
+      const p = proposals.get(id)!;
+      if (accepted.length === 0) return res.json({ steps: [], delivered: false, reason: "Nothing left to accept" });
+      const delivery = await send(p, acceptAllCommand(id));
+      const ids = new Set(accepted.map((s) => s.stepId));
+      res.json({ steps: (await views(p)).filter((s) => ids.has(s.stepId)), ...delivery });
+    }),
+  );
+
+  /** The current text of a file in the proposal's repo, so the step card can show the change inside the whole file. */
+  r.get(
+    "/proposals/:id/file",
+    withStore(async (req, res) => {
+      const p = proposals.get(req.params.id);
+      if (!p) return res.status(404).json({ error: "Proposal not found" });
+      const rel = typeof req.query.path === "string" ? req.query.path : "";
+      if (!rel) return res.status(400).json({ error: "path required" });
+      try {
+        const f = await readRepoFile(p.repoRoot, rel);
+        res.json(f.exists ? { exists: true, content: f.content } : { exists: false });
+      } catch (err) {
+        if (err instanceof PathError) return res.status(400).json({ error: err.message });
+        throw err;
+      }
+    }),
+  );
+
+  r.post(
+    "/proposals/:id/accept-steps",
+    withStore(async (req, res) => {
+      if (!jsonOnly(req, res)) return;
+      const { stepIds: ids, texts: rawTexts } = req.body as { stepIds?: unknown; texts?: unknown };
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100 || !ids.every((x) => typeof x === "string")) {
+        return res.status(400).json({ error: "stepIds must be a non-empty list of step ids" });
+      }
+      const texts: Record<string, string> = {};
+      if (rawTexts !== undefined) {
+        if (typeof rawTexts !== "object" || rawTexts === null || Array.isArray(rawTexts)) return res.status(400).json({ error: "texts must be an object" });
+        for (const [k, v] of Object.entries(rawTexts)) {
+          if (typeof v !== "string" || v.length > MAX_QUESTION) return res.status(400).json({ error: `texts.${k} must be a string of at most ${MAX_QUESTION} characters` });
+          if (v.trim()) texts[k] = v;
+        }
+      }
+      const { id } = req.params;
+      const p0 = proposals.get(id);
+      if (!p0) return res.status(404).json({ error: "Proposal not found" });
+      const stale = new Set((await views(p0)).filter((s) => s.stale).map((s) => s.stepId));
+      const { accepted, skipped } = await proposals.acceptSteps(id, ids as string[], stale, texts);
+      const p = proposals.get(id)!;
+      if (accepted.length === 0) return res.json({ steps: [], skipped, delivered: false, reason: "Nothing could be accepted" });
+      const delivery = await send(p, acceptStepsCommand(id, accepted.map((s) => s.stepId)));
+      const done = new Set(accepted.map((s) => s.stepId));
+      res.json({ steps: (await views(p)).filter((s) => done.has(s.stepId)), skipped, ...delivery });
+    }),
+  );
+
+  r.delete(
+    "/proposals/:id",
+    withStore(async (req, res) => {
+      await proposals.delete(req.params.id);
+      res.json({ ok: true });
+    }),
+  );
 }
 
 const repoField = z.string().min(1);
