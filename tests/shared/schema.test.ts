@@ -54,9 +54,10 @@ describe("findingPatchSchema", () => {
     expect(findingPatchSchema.safeParse({ severity: "low" }).success).toBe(true);
   });
 
-  it("rejects statuses only Claude may set", () => {
-    expect(findingPatchSchema.safeParse({ status: "fixed" }).success).toBe(false);
+  it("rejects statuses only Claude may set; the user may mark a finding fixed by hand", () => {
     expect(findingPatchSchema.safeParse({ status: "fixing" }).success).toBe(false);
+    expect(findingPatchSchema.safeParse({ status: "skipped" }).success).toBe(false);
+    expect(findingPatchSchema.safeParse({ status: "fixed" }).success).toBe(true);
   });
 
   it("rejects unknown keys", () => {

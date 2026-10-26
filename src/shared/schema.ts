@@ -134,7 +134,8 @@ export type Review = z.infer<typeof reviewSchema>;
 /** What the UI may change on a finding. Claude-only statuses (fixing/fixed/skipped) are excluded. */
 export const findingPatchSchema = z
   .object({
-    status: z.enum(["open", "fix_requested", "dismissed"]).optional(),
+    // "fixed" by hand: the user closes a finding Claude handled but never reported (mark_done missed).
+    status: z.enum(["open", "fix_requested", "dismissed", "fixed"]).optional(),
     severity: severitySchema.optional(),
     myNote: z.string().max(2000).optional(),
     draft: z.string().max(4000).optional(),

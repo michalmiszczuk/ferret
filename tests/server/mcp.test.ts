@@ -45,10 +45,10 @@ const markFix = (reviewId: string, fid: string, myNote?: string) =>
   });
 
 describe("MCP tools", () => {
-  it("lists the eleven tools", async () => {
+  it("lists the twelve tools", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      "add_steps", "answer_proposal", "get_pending_actions", "get_proposal_decisions", "mark_done", "mark_step",
+      "add_steps", "answer_proposal", "get_pending_actions", "get_proposal_decisions", "mark_done", "mark_step", "mark_steps",
       "prepare_review_scope", "propose_changes", "revise_step", "start_review", "submit_review",
     ]);
   });

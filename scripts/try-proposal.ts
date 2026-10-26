@@ -228,6 +228,16 @@ const added = data(await call("add_steps", { proposalId: pid, steps: [{ ...s3, s
 assert.deepEqual(added.steps.map((s: { stepId: string }) => s.stepId), ["s1", "s2", "s3", "s4"]);
 ok("add_steps appends s4");
 
+await again.acceptSteps(pid, ["s2", "s3", "s4"]);
+const batchMarked = data(await call("mark_steps", { proposalId: pid, steps: [
+  { stepId: "s2", outcome: "applied", note: "edited" },
+  { stepId: "s3", outcome: "applied", note: "0 errors" },
+  { stepId: "s4", outcome: "skipped" },
+] }));
+assert.deepEqual(batchMarked, { ok: true, marked: 3, remaining: 0, proposalStatus: "done" });
+assert.match(await errorOf("mark_steps", { proposalId: pid, steps: [{ stepId: "nope", outcome: "applied" }] }), /Step nope not found/);
+ok("mark_steps reports three steps in one call (proposal done); an unknown step fails the call");
+
 const many = Array.from({ length: 51 }, (_, i) => ({ ...s3, stepId: `c${i}` }));
 assert.match(await errorOf("propose_changes", { ...base, steps: many }), /steps/);
 assert.match(await errorOf("propose_changes", { ...base, steps: [{ ...s1, before: "x".repeat(25_000) }] }), /before/);

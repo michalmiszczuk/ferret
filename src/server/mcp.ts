@@ -5,7 +5,7 @@ import { z } from "zod";
 import { countBySeverity } from "../shared/findings";
 import { parsePrUrl, parseRange, sourceLabel } from "../shared/git-parse";
 import { MODEL_ID } from "../shared/models";
-import { addStepsShape, answerShape, markStepShape, proposeChangesShape, reviseStepShape } from "../shared/proposal";
+import { addStepsShape, answerShape, markStepShape, markStepsShape, proposeChangesShape, reviseStepShape } from "../shared/proposal";
 import { submitReviewShape } from "../shared/schema";
 import { parseTaskRef } from "./clickup";
 import { anchorFinding, normalizeRepoRoot } from "./files";
@@ -231,6 +231,7 @@ export function buildMcpServer(store: ReviewStore, getBaseUrl: () => string, dep
   );
 
   registerProposalTools(server, getBaseUrl, deps);
+  registerMarkSteps(server, deps);
   return server;
 }
 
@@ -365,7 +366,7 @@ function registerProposalTools(server: McpServer, getBaseUrl: () => string, deps
     {
       title: "Report a step's outcome",
       description:
-        "Call after handling each accepted step: `applied` with a one-sentence note of what changed, `failed` with why, or `skipped` with why. For command steps put the trimmed output in `note`.",
+        "Report ONE step: `applied` with a one-sentence note of what changed, `failed` with why, or `skipped` with why. For command steps put the trimmed output in `note`. When you handled several steps, use mark_steps once instead.",
       inputSchema: markStepShape,
     },
     async ({ proposalId, stepId, outcome, note }) => {
@@ -375,6 +376,30 @@ function registerProposalTools(server: McpServer, getBaseUrl: () => string, deps
         const p = store.get(proposalId)!;
         const remaining = p.steps.filter((s) => s.status === "accepted").length;
         return ok({ ok: true, remaining, proposalStatus: p.status });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+}
+
+/** Proposal batch reporting lives next to the other proposal tools but is registered here to keep that block readable. */
+export function registerMarkSteps(server: McpServer, deps: McpDeps): void {
+  server.registerTool(
+    "mark_steps",
+    {
+      title: "Report several steps' outcomes at once",
+      description:
+        "Report the outcome of many steps in ONE call after handling a batch (accept-steps, accept-all, or several decisions): each `{ stepId, outcome: applied|failed|skipped, note }` as in mark_step. Prefer this over calling mark_step repeatedly.",
+      inputSchema: markStepsShape,
+    },
+    async ({ proposalId, steps }) => {
+      try {
+        if (!deps.proposals) throw new Error("This Ferret build has no proposal mode");
+        await deps.proposals.markSteps(proposalId, steps);
+        const p = deps.proposals.get(proposalId)!;
+        const remaining = p.steps.filter((s) => s.status === "accepted").length;
+        return ok({ ok: true, marked: steps.length, remaining, proposalStatus: p.status });
       } catch (err) {
         return fail(err);
       }

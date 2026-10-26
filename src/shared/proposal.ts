@@ -130,6 +130,21 @@ export const markStepShape = {
   note: z.string().max(MAX_NOTE).optional().describe("What you changed, why it failed, or a command's output (trimmed)"),
 };
 
+/** Several outcomes in one call (a batch of accepted steps handled together). */
+export const markStepsShape = {
+  proposalId: z.string().min(1),
+  steps: z
+    .array(
+      z.object({
+        stepId,
+        outcome: z.enum(["applied", "failed", "skipped"]),
+        note: z.string().max(MAX_NOTE).optional().describe("What you changed, why it failed, or a command's output (trimmed)"),
+      }),
+    )
+    .min(1)
+    .max(MAX_STEPS),
+};
+
 export const decisionSchema = z.object({
   kind: z.enum(DECISION_KINDS),
   text: z.string().max(MAX_QUESTION).optional(),

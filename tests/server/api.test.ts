@@ -39,7 +39,10 @@ describe("REST API", () => {
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ status: "fix_requested", myNote: "keep API" });
 
-    expect((await patch(`/api/reviews/${review.id}/findings/f2`, { status: "fixed" })).status).toBe(400);
+    expect((await patch(`/api/reviews/${review.id}/findings/f2`, { status: "fixing" })).status).toBe(400);
+    const manual = await patch(`/api/reviews/${review.id}/findings/f2`, { status: "fixed" }); // "Mark fixed" by hand
+    expect(manual.status).toBe(200);
+    expect(await manual.json()).toMatchObject({ status: "fixed" });
     expect((await patch(`/api/reviews/${review.id}/findings/f9`, { status: "open" })).status).toBe(404);
   });
 

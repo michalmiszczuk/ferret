@@ -51,7 +51,8 @@ export function CommentCard({
   };
 
   const actionable = f.status === "open" || f.status === "fix_requested";
-  const resettable = f.status === "fixing" || f.status === "skipped" || f.status === "dismissed";
+  // "fixed" too, so a finding marked fixed by mistake (or by hand) can be reopened.
+  const resettable = f.status === "fixing" || f.status === "skipped" || f.status === "dismissed" || f.status === "fixed";
   const noteId = `note-${f.id}`;
   const sevId = `sev-${f.id}`;
 
@@ -173,6 +174,11 @@ export function CommentCard({
         {actionable && (
           <button className="btn" onClick={() => onUpdate({ status: "dismissed" })}>
             Dismiss
+          </button>
+        )}
+        {(f.status === "fix_requested" || f.status === "fixing") && (
+          <button className="btn" title="Claude fixed it but didn't report back: close it yourself" onClick={() => onUpdate({ status: "fixed" })}>
+            ✓ Mark fixed
           </button>
         )}
         {resettable && (

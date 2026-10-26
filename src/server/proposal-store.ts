@@ -19,7 +19,8 @@ import {
 import { readRepoFile, reanchor } from "./files";
 import { NotFoundError } from "./store";
 
-export type StepPatch = Partial<Pick<Step, "what" | "why" | "before" | "after" | "notes">>;
+type Outcome = "applied" | "failed" | "skipped";
+export type StepPatch =Partial<Pick<Step, "what" | "why" | "before" | "after" | "notes">>;
 
 /** The `readFile` for `views()`: reads a repo-relative file from the proposal's repo, null when missing or unreadable. */
 export function repoFileReader(repoRoot: string): (rel: string) => Promise<string | null> {
@@ -272,16 +273,24 @@ export class ProposalStore extends EventEmitter {
     return { proposal, steps };
   }
 
-  async markStep(id: string, stepId: string, outcome: "applied" | "failed" | "skipped", note?: string): Promise<Step> {
+  async markStep(id: string, stepId: string, outcome: Outcome, note?: string): Promise<Step> {
+    return (await this.markSteps(id, [{ stepId, outcome, note }]))[0];
+  }
+
+  /** Several outcomes at once: one write and one event for the whole batch. Unknown step ids fail before anything changes. */
+  async markSteps(id: string, items: { stepId: string; outcome: Outcome; note?: string }[]): Promise<Step[]> {
     const proposal = this.require(id);
-    const step = this.requireStep(proposal, stepId);
+    const steps = items.map((it) => this.requireStep(proposal, it.stepId));
     const now = new Date().toISOString();
-    step.status = outcome;
-    step.outcome = { kind: outcome, ...(note ? { note } : {}), at: now };
-    if (note) step.thread.push({ by: "claude", kind: "note", text: note, at: now });
+    items.forEach(({ outcome, note }, i) => {
+      const step = steps[i];
+      step.status = outcome;
+      step.outcome = { kind: outcome, ...(note ? { note } : {}), at: now };
+      if (note) step.thread.push({ by: "claude", kind: "note", text: note, at: now });
+    });
     proposal.status = proposal.steps.every(isSettled) ? "done" : "active";
     await this.save(proposal, "proposal-updated");
-    return step;
+    return steps;
   }
 
   async delete(id: string): Promise<void> {
